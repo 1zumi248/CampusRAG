@@ -21,3 +21,6 @@ dist/
 # 系统文件
 Thumbs.db
 .DS_Store
+
+#本地文件
+exp
