@@ -28,7 +28,7 @@ public class RetrievalService {
     private final EmbeddingStore<TextSegment> embeddingStore;
     private final DocumentChunkRepository chunkRepository;
 
-    @Value("${rag.retrieval.min-score:0.7}")
+    @Value("${rag.retrieval.min-score:0.4}")
     private double minScore;
 
     /**
@@ -71,9 +71,10 @@ public class RetrievalService {
         // 4. 批量查询（一次 SQL 替代 N+1）
         List<DocumentChunk> chunks = chunkRepository.selectBatchIds(new ArrayList<>(scoreMap.keySet()));
 
-        // 5. 组装结果，恢复相似度分数
+        // 5. 组装结果，按相似度降序排列
         return chunks.stream()
                 .map(chunk -> new RetrievalResult(chunk, scoreMap.getOrDefault(chunk.getId(), 0.0)))
+                .sorted((a, b) -> Double.compare(b.getSimilarityScore(), a.getSimilarityScore()))
                 .collect(Collectors.toList());
     }
 }

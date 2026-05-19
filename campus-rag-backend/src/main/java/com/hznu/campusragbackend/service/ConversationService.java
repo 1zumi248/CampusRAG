@@ -7,6 +7,7 @@ import com.hznu.campusragbackend.model.MessageRecord;
 import com.hznu.campusragbackend.model.SourceReference;
 import com.hznu.campusragbackend.repository.ConversationRepository;
 import com.hznu.campusragbackend.repository.MessageRecordRepository;
+import com.hznu.campusragbackend.config.PersistentChatMemoryStore;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -21,6 +22,7 @@ public class ConversationService {
 
     private final ConversationRepository conversationRepository;
     private final MessageRecordRepository messageRecordRepository;
+    private final PersistentChatMemoryStore chatMemoryStore;
 
     /** 新建会话，返回会话 ID */
     public Conversation createConversation() {
@@ -63,24 +65,29 @@ public class ConversationService {
                 .build();
         messageRecordRepository.insert(record);
 
-        // 更新会话的 updated_at，若是首轮则自动生成标题
-        Conversation conv = conversationRepository.selectById(conversationId);
-        if (conv != null) {
-            if ("新建会话".equals(conv.getTitle()) && question != null) {
-                String newTitle = question.length() > 30 ? question.substring(0, 30) + "…" : question;
-                conv.setTitle(newTitle);
-            }
-            conv.setUpdatedAt(LocalDateTime.now());
-            conversationRepository.updateById(conv);
+        // 始终更新 updated_at
+        Conversation update = new Conversation();
+        update.setId(conversationId);
+        update.setUpdatedAt(LocalDateTime.now());
+        conversationRepository.updateById(update);
+
+        // 仅当标题还是默认值时才设置标题（条件 UPDATE，无需先 SELECT）
+        if (question != null) {
+            String newTitle = question.length() > 30 ? question.substring(0, 30) + "…" : question;
+            conversationRepository.update(null,
+                    new com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<Conversation>()
+                            .eq(Conversation::getId, conversationId)
+                            .eq(Conversation::getTitle, "新建会话")
+                            .set(Conversation::getTitle, newTitle));
         }
 
         return record;
     }
 
-    /** 删除会话及其关联消息 */
+    /** 删除会话及其关联消息，同步清理 ChatMemory */
     public void deleteConversation(Long conversationId) {
-        // 消息通过 ON DELETE CASCADE 自动删除
         conversationRepository.deleteById(conversationId);
+        chatMemoryStore.deleteMessages(conversationId);
         log.info("删除会话: id={}", conversationId);
     }
 }

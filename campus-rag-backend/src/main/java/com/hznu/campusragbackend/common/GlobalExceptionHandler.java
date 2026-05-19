@@ -11,7 +11,7 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(RuntimeException.class)
     public Result<Void> handleRuntimeException(RuntimeException e) {
         log.error("系统异常", e);
-        return Result.error(500, e.getMessage());
+        return Result.error(500, "服务器内部错误");
     }
 
     @ExceptionHandler(Exception.class)

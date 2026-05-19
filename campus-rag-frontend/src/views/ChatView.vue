@@ -3,7 +3,6 @@ import { ref, nextTick, onMounted } from 'vue'
 import { Plus, Promotion, Delete } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  sendMessage,
   getConversations,
   getMessages,
   deleteConversation,
@@ -17,7 +16,6 @@ interface Message {
   question: string
   answer: string
   sources: ChatResponse['sources']
-  loading: boolean
   streaming: boolean
   error: boolean
 }
@@ -27,7 +25,6 @@ const currentConvId = ref<number | null>(null)
 const messages = ref<Message[]>([])
 const inputText = ref('')
 const sending = ref(false)
-const isStreamMode = ref(true)
 const chatBody = ref<HTMLElement>()
 const inputRef = ref<HTMLTextAreaElement>()
 const loadingMessages = ref(false)
@@ -61,7 +58,6 @@ async function selectConversation(conv: ConversationItem) {
       question: m.question,
       answer: m.answer ?? '',
       sources: parseSources(m.sources),
-      loading: false,
       streaming: false,
       error: false,
     }))
@@ -112,76 +108,32 @@ async function handleDeleteConv(conv: ConversationItem) {
 }
 
 async function handleSend() {
-  if (isStreamMode.value) {
-    await handleStreamSend()
-  } else {
-    await handleSyncSend()
-  }
-}
-
-async function handleSyncSend() {
   const text = inputText.value.trim()
   if (!text || sending.value) return
 
   sending.value = true
   inputText.value = ''
 
-  const msg: Message = {
+  messages.value.push({
     id: Date.now(),
     question: text,
     answer: '',
     sources: [],
-    loading: true,
-    streaming: false,
-    error: false,
-  }
-  messages.value.push(msg)
-  scrollToBottom()
-
-  try {
-    const res = await sendMessage(text, currentConvId.value ?? undefined)
-    msg.answer = res.answer
-    msg.sources = res.sources
-    msg.loading = false
-
-    if (currentConvId.value === null) {
-      currentConvId.value = res.conversationId
-      await loadConversations()
-    }
-  } catch {
-    msg.error = true
-    msg.answer = '请求失败，请检查后端服务是否启动'
-    msg.loading = false
-  } finally {
-    sending.value = false
-    scrollToBottom()
-    nextTick(() => inputRef.value?.focus())
-  }
-}
-
-async function handleStreamSend() {
-  const text = inputText.value.trim()
-  if (!text || sending.value) return
-
-  sending.value = true
-  inputText.value = ''
-
-  const msg: Message = {
-    id: Date.now(),
-    question: text,
-    answer: '',
-    sources: [],
-    loading: false,
     streaming: true,
     error: false,
-  }
-  messages.value.push(msg)
+  })
+  // 关键：从响应式数组里取出来的才是 Vue 的 Proxy 代理；
+  // 直接改 push 前的局部对象不会触发响应式更新（Vue3 Proxy 机制）
+  const msg = messages.value[messages.value.length - 1]!
   scrollToBottom()
+
+  const t0 = performance.now()
+  let chunkIdx = 0
 
   try {
     const response = await fetch('/api/chat/stream', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
       body: JSON.stringify({ question: text, conversationId: currentConvId.value }),
     })
 
@@ -196,15 +148,19 @@ async function handleStreamSend() {
       const { done, value } = await reader.read()
       if (done) break
 
+      chunkIdx++
+      console.log(`[SSE] chunk#${chunkIdx} +${(performance.now() - t0).toFixed(0)}ms, ${value?.byteLength ?? 0}B`)
+
       buffer += decoder.decode(value, { stream: true })
       const lines = buffer.split('\n')
-      buffer = lines.pop() || ''
+      buffer = lines.pop() ?? ''
 
       for (const line of lines) {
-        if (line.startsWith('event:')) {
-          eventType = line.slice(6).trim()
-        } else if (line.startsWith('data:')) {
-          const data = line.slice(5).trim()
+        const trimmed = line.trim()
+        if (trimmed.startsWith('event:')) {
+          eventType = trimmed.slice(6).trim()
+        } else if (trimmed.startsWith('data:')) {
+          const data = trimmed.slice(5).trim()
           if (eventType === 'conversation') {
             if (currentConvId.value === null) {
               currentConvId.value = Number(data)
@@ -298,15 +254,10 @@ function handleKeydown(e: KeyboardEvent) {
           <div class="chat-answer">
             <div class="msg-avatar a-avatar">A</div>
             <div class="msg-content">
-              <div v-if="msg.loading" class="loading-indicator">
-                <span class="dot"></span>
-                <span class="dot"></span>
-                <span class="dot"></span>
-              </div>
-              <div v-else class="answer-text" :class="{ 'error-text': msg.error }">
+              <div class="answer-text" :class="{ 'error-text': msg.error }">
                 <pre>{{ msg.answer }}<span v-if="msg.streaming" class="stream-cursor">|</span></pre>
               </div>
-              <div v-if="!msg.loading && !msg.streaming && !msg.error && msg.sources.length > 0" class="sources-box">
+              <div v-if="!msg.streaming && !msg.error && msg.sources.length > 0" class="sources-box">
                 <div class="sources-title">引用来源</div>
                 <div v-for="(src, i) in msg.sources" :key="i" class="source-item">
                   <span class="source-idx">[{{ i + 1 }}]</span>
@@ -320,10 +271,6 @@ function handleKeydown(e: KeyboardEvent) {
       </div>
 
       <div class="chat-footer">
-        <div class="mode-toggle">
-          <span class="mode-label">同步</span>
-          <el-switch v-model="isStreamMode" size="small" active-text="流式" inactive-text="" />
-        </div>
         <div class="input-row">
           <textarea
             ref="inputRef"
@@ -550,28 +497,6 @@ function handleKeydown(e: KeyboardEvent) {
   min-width: 0;
 }
 
-.loading-indicator {
-  display: flex;
-  gap: 4px;
-  padding: 10px 0;
-}
-
-.dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--green);
-  animation: dotPulse 1.4s infinite;
-}
-
-.dot:nth-child(2) { animation-delay: 0.2s; }
-.dot:nth-child(3) { animation-delay: 0.4s; }
-
-@keyframes dotPulse {
-  0%, 80%, 100% { opacity: 0.2; transform: scale(0.8); }
-  40% { opacity: 1; transform: scale(1); }
-}
-
 .answer-text pre {
   white-space: pre-wrap;
   word-break: break-word;
@@ -694,19 +619,6 @@ function handleKeydown(e: KeyboardEvent) {
 .send-btn:disabled {
   background: #d1d5db;
   cursor: not-allowed;
-}
-
-.mode-toggle {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-bottom: 10px;
-}
-
-.mode-label {
-  font-size: 13px;
-  color: var(--text-secondary);
 }
 
 .stream-cursor {

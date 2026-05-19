@@ -17,6 +17,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
+import reactor.core.scheduler.Schedulers;
 
 import java.time.Duration;
 import java.util.ArrayList;
@@ -34,10 +35,6 @@ public class ChatService {
     private final CampusRetrievalAugmentor campusRetrievalAugmentor;
     private final ConversationService conversationService;
 
-    /**
-     * RAG 问答（同步），支持会话上下文。
-     * 始终以问题文本为 key 先查 Redis，避免同一问题重复调用 LLM。
-     */
     public ChatResponse chat(String question, Long conversationId) {
         String cacheKey = CACHE_KEY_PREFIX + DigestUtil.md5Hex(question.trim());
         String cached = redisTemplate.opsForValue().get(cacheKey);
@@ -59,41 +56,90 @@ public class ChatService {
     }
 
     /**
-     * RAG 问答（流式 SSE），支持会话上下文。
-     * 始终以问题文本为 key 先查 Redis，避免同一问题重复调用 LLM。
+     * 流式问答。
+     * Flux.create() 的 lambda 在订阅后才执行（subscribeOn 切到 boundedElastic 线程），
+     * tokenStream.start() 阻塞该线程并逐 token 回调 sink.next()，Spring SSE 每收到一个事件立即 flush。
      */
     public Flux<ServerSentEvent<String>> streamChat(String question, Long conversationId) {
-        // 始终先查 Redis 缓存（以问题文本为 key）
         String cacheKey = CACHE_KEY_PREFIX + DigestUtil.md5Hex(question.trim());
         String cached = redisTemplate.opsForValue().get(cacheKey);
+        Long effectiveConvId = resolveConversationId(conversationId);
+
         if (cached != null) {
             log.info("流式命中缓存: {}", question);
             ChatResponse cr = JSONUtil.toBean(cached, ChatResponse.class);
-            Long effectiveConvId = resolveConversationId(conversationId);
             conversationService.saveMessage(effectiveConvId, question, cr.getAnswer(), cr.getSources());
-            cr.setConversationId(effectiveConvId);
             return Flux.just(
-                    ServerSentEvent.<String>builder().event("conversation").data(effectiveConvId.toString()).build(),
-                    ServerSentEvent.<String>builder().event("token").data(cr.getAnswer()).build(),
-                    ServerSentEvent.<String>builder().event("sources")
-                            .data(JSONUtil.toJsonStr(cr.getSources())).build()
+                    sse("conversation", effectiveConvId.toString()),
+                    sse("token", cr.getAnswer()),
+                    sse("sources", JSONUtil.toJsonStr(cr.getSources()))
             );
         }
 
         log.info("流式未命中缓存: {}", question);
-        Long effectiveConvId = resolveConversationId(conversationId);
-        return doStreamChat(question, effectiveConvId, cacheKey);
+        long sseStartTime = System.currentTimeMillis();
+        return Flux.<ServerSentEvent<String>>create(sink -> {
+            try {
+                RetrievalContext ctx = campusRetrievalAugmentor.retrieveAndFormat(question);
+                log.info("[流式] 检索完成 +{}ms", System.currentTimeMillis() - sseStartTime);
+
+                sink.next(sse("conversation", effectiveConvId.toString()));
+
+                if (ctx.formattedText().isEmpty()) {
+                    String emptyAnswer = "抱歉，知识库中没有找到相关信息。";
+                    conversationService.saveMessage(effectiveConvId, question, emptyAnswer, List.of());
+                    sink.next(sse("token", emptyAnswer));
+                    sink.next(sse("sources", "[]"));
+                    sink.complete();
+                    return;
+                }
+
+                List<SourceReference> sources = buildSources(ctx.results());
+                String sourcesJson = JSONUtil.toJsonStr(sources);
+                StringBuilder fullAnswer = new StringBuilder();
+                java.util.concurrent.atomic.AtomicInteger tokenCount = new java.util.concurrent.atomic.AtomicInteger();
+
+                TokenStream tokenStream = ragAssistant.stream(ctx.formattedText(), question, effectiveConvId);
+                tokenStream
+                        .onPartialResponse(token -> {
+                            if (token != null && !token.isEmpty()) {
+                                int n = tokenCount.incrementAndGet();
+                                log.info("[流式] token#{} +{}ms: {}", n, System.currentTimeMillis() - sseStartTime, token.replace("\n", "\\n"));
+                                fullAnswer.append(token);
+                                sink.next(sse("token", token));
+                            }
+                        })
+                        .onCompleteResponse(response -> {
+                            log.info("[流式] 完成 +{}ms, 共{}个token", System.currentTimeMillis() - sseStartTime, tokenCount.get());
+                            String finalAnswer = fullAnswer.toString();
+                            conversationService.saveMessage(effectiveConvId, question, finalAnswer, sources);
+                            redisTemplate.opsForValue().set(cacheKey,
+                                    JSONUtil.toJsonStr(ChatResponse.builder()
+                                            .conversationId(effectiveConvId)
+                                            .answer(finalAnswer)
+                                            .sources(sources)
+                                            .build()),
+                                    Duration.ofSeconds(CACHE_EXPIRE_SECONDS));
+                            sink.next(sse("sources", sourcesJson));
+                            sink.complete();
+                        })
+                        .onError(error -> {
+                            log.error("TokenStream 错误", error);
+                            sink.error(error);
+                        })
+                        .start();
+
+            } catch (Exception e) {
+                log.error("流式问答异常", e);
+                sink.error(e);
+            }
+        }).subscribeOn(Schedulers.boundedElastic());
     }
 
-    /** conversationId 为 null 时创建新会话，否则直接返回 */
     private Long resolveConversationId(Long conversationId) {
-        if (conversationId != null) {
-            return conversationId;
-        }
-        return conversationService.createConversation().getId();
+        return conversationId != null ? conversationId : conversationService.createConversation().getId();
     }
 
-    /** 核心同步问答（不走缓存），带 conversationId */
     private ChatResponse doChat(String question, Long conversationId) {
         RetrievalContext ctx = campusRetrievalAugmentor.retrieveAndFormat(question);
 
@@ -110,7 +156,6 @@ public class ChatService {
 
         String answer = ragAssistant.answer(ctx.formattedText(), question, conversationId);
         List<SourceReference> sources = buildSources(ctx.results());
-
         conversationService.saveMessage(conversationId, question, answer, sources);
 
         log.info("问答处理完成: conversationId={}", conversationId);
@@ -121,58 +166,8 @@ public class ChatService {
                 .build();
     }
 
-    /** 核心流式问答（不走缓存），带 conversationId。cacheKey 非 null 时流完成后写入 Redis */
-    private Flux<ServerSentEvent<String>> doStreamChat(String question, Long conversationId, String cacheKey) {
-        RetrievalContext ctx = campusRetrievalAugmentor.retrieveAndFormat(question);
-
-        if (ctx.formattedText().isEmpty()) {
-            String emptyAnswer = "抱歉，知识库中没有找到相关信息。";
-            conversationService.saveMessage(conversationId, question, emptyAnswer, List.of());
-            return Flux.just(
-                    ServerSentEvent.<String>builder().event("conversation").data(conversationId.toString()).build(),
-                    ServerSentEvent.<String>builder().event("token").data(emptyAnswer).build(),
-                    ServerSentEvent.<String>builder().event("sources").data("[]").build()
-            );
-        }
-
-        List<SourceReference> sources = buildSources(ctx.results());
-        String sourcesJson = JSONUtil.toJsonStr(sources);
-
-        TokenStream tokenStream = ragAssistant.stream(ctx.formattedText(), question, conversationId);
-        StringBuilder fullAnswer = new StringBuilder();
-        return Flux.<ServerSentEvent<String>>create(sink -> {
-            // 先发送 conversationId
-            sink.next(ServerSentEvent.<String>builder().event("conversation").data(conversationId.toString()).build());
-
-            tokenStream
-                    .onPartialResponse(token -> {
-                        fullAnswer.append(token);
-                        sink.next(
-                                ServerSentEvent.<String>builder().event("token").data(token).build());
-                    })
-                    .onCompleteResponse(response -> {
-                        String finalAnswer = fullAnswer.toString();
-                        conversationService.saveMessage(conversationId, question, finalAnswer, sources);
-
-                        // 流完成后写 Redis 缓存（仅独立查询模式）
-                        if (cacheKey != null) {
-                            ChatResponse cacheEntry = ChatResponse.builder()
-                                    .conversationId(conversationId)
-                                    .answer(finalAnswer)
-                                    .sources(sources)
-                                    .build();
-                            redisTemplate.opsForValue().set(cacheKey, JSONUtil.toJsonStr(cacheEntry),
-                                    Duration.ofSeconds(CACHE_EXPIRE_SECONDS));
-                        }
-
-                        sink.next(ServerSentEvent.<String>builder().event("sources").data(sourcesJson).build());
-                        sink.complete();
-                    })
-                    .onError(sink::error)
-                    .start();
-
-            sink.onCancel(() -> log.debug("SSE 客户端断开: {}", question));
-        }).timeout(Duration.ofSeconds(60));
+    private static ServerSentEvent<String> sse(String event, String data) {
+        return ServerSentEvent.<String>builder().event(event).data(data).build();
     }
 
     private List<SourceReference> buildSources(List<RetrievalResult> results) {

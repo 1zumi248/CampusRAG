@@ -15,7 +15,7 @@ export function uploadDocument(file: File): Promise<DocumentItem> {
   const formData = new FormData()
   formData.append('file', file)
   return api
-    .post('/documents/upload', formData)
+    .post('/documents/upload', formData, { timeout: 300_000 })
     .then((res) => res.data)
 }
 

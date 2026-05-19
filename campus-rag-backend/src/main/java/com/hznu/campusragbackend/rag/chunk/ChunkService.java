@@ -38,18 +38,25 @@ public class ChunkService {
         // 第二步：段落细切 + 合并短块
         List<String> rawChunks = refineChunks(paragraphs);
 
-        // 第三步：持久化到 document_chunks 表
+        // 第三步：持久化到 document_chunks 表（批量插入）
         List<DocumentChunk> chunks = new ArrayList<>();
         for (int i = 0; i < rawChunks.size(); i++) {
-            DocumentChunk chunk = DocumentChunk.builder()
+            chunks.add(DocumentChunk.builder()
                     .documentId(documentId)
                     .chunkIndex(i)
                     .content(rawChunks.get(i))
                     .metadata(buildMetadata(documentId, documentTitle, i))
-                    .build();
+                    .build());
+        }
 
-            documentChunkRepository.insert(chunk);
-            chunks.add(chunk);
+        if (!chunks.isEmpty()) {
+            documentChunkRepository.insertBatch(chunks);
+            // 批量插入不回填主键，查回带 ID 的完整列表供向量化使用
+            chunks = documentChunkRepository.selectList(
+                    new LambdaQueryWrapper<DocumentChunk>()
+                            .eq(DocumentChunk::getDocumentId, documentId)
+                            .orderByAsc(DocumentChunk::getChunkIndex)
+            );
         }
 
         log.info("分块完成: documentId={}, 原文{}字符, 切出{}块",

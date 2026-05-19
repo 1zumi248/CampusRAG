@@ -18,6 +18,7 @@ import java.util.Set;
 public class DocumentParserService {
 
     private final Tika tika = new Tika();
+    private static final AutoDetectParser PARSER = new AutoDetectParser();
     /**
      * 危险文件类型黑名单（MIME 前缀匹配）
      * Tika 能解析什么就放什么，只拦截可执行文件/脚本
@@ -51,7 +52,7 @@ public class DocumentParserService {
             log.debug("检测到文件类型: {}", fileType);
             for (String blocked : BLOCKED_MIME_PREFIXES){
                 if ( fileType!=null && fileType.startsWith(blocked)){
-                    throw new IllegalArgumentException("不支持的文件类型: {}"+fileType);
+                    throw new IllegalArgumentException("不支持的文件类型: " + fileType);
                 }
             }
 
@@ -77,13 +78,12 @@ public class DocumentParserService {
     }
 
     private String extractText(MultipartFile file) throws Exception {
-        AutoDetectParser parser = new AutoDetectParser();
         BodyContentHandler handler = new BodyContentHandler(Constants.DOC_PARSE_MAX_CHARS);
         Metadata metadata = new Metadata();
         ParseContext context = new ParseContext();
 
         try (InputStream inputStream = file.getInputStream()) {
-            parser.parse(inputStream, handler, metadata, context);
+            PARSER.parse(inputStream, handler, metadata, context);
             return handler.toString();
         }
     }

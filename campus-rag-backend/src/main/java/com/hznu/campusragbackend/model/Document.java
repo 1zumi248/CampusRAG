@@ -30,7 +30,7 @@ public class Document {
     @TableField("file_size")
     private Long fileSize;
 
-    @TableField("content")
+    @TableField(value = "content", select = false)
     private String content;
 
     @TableField("content_hash")
