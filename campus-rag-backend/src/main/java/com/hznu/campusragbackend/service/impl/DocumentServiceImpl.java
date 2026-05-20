@@ -69,12 +69,14 @@ public class DocumentServiceImpl implements DocumentService {
         // 5. 保存到数据库
         documentRepository.insert(document);
 
-        // 6. 分块并持久化到 document_chunks
-        List<DocumentChunk> chunks = chunkService.chunk(
-                document.getContent(),
-                document.getId(),
-                document.getTitle()
-        );
+        // 6. 分块并持久化到 document_chunks（优先使用结构化分块）
+        List<DocumentChunk> chunks;
+        if (!parsedResult.getContentBlocks().isEmpty()) {
+            chunks = chunkService.chunk(parsedResult.getContentBlocks(), document.getId(), document.getTitle());
+        } else {
+            // 降级：HTML 未能解析出结构化内容，用纯文本回退原有分块逻辑
+            chunks = chunkService.chunk(parsedResult.getPlainText(), document.getId(), document.getTitle());
+        }
 
         // 7. 向量化并存入向量库（最后执行：独立连接池，失败时上面操作回滚）
         embeddingService.embedAndStore(chunks, document.getId());

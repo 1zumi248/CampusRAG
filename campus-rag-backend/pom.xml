@@ -112,6 +112,13 @@
             <artifactId>reactor-core</artifactId>
         </dependency>
 
+        <!-- HTML 解析（文档结构提取：标题层级 + 表格） -->
+        <dependency>
+            <groupId>org.jsoup</groupId>
+            <artifactId>jsoup</artifactId>
+            <version>1.18.1</version>
+        </dependency>
+
     </dependencies>
 
     <build>

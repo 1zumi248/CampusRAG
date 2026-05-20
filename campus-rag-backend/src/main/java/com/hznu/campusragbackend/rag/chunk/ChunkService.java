@@ -1,15 +1,18 @@
 package com.hznu.campusragbackend.rag.chunk;
 
+import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.hznu.campusragbackend.common.Constants;
 import com.hznu.campusragbackend.model.DocumentChunk;
+import com.hznu.campusragbackend.rag.parser.ContentBlock;
 import com.hznu.campusragbackend.repository.DocumentChunkRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
@@ -62,6 +65,90 @@ public class ChunkService {
         log.info("分块完成: documentId={}, 原文{}字符, 切出{}块",
                 documentId, text.length(), chunks.size());
         return chunks;
+    }
+
+    /**
+     * 基于结构化块进行分块。
+     * PARAGRAPH 块前置标题路径后走原有段落/句子切分逻辑；
+     * TABLE 块转为 Markdown 表格后作为独立 chunk，不参与切分（保证表格完整性）。
+     */
+    public List<DocumentChunk> chunk(List<ContentBlock> blocks, Long documentId, String documentTitle) {
+        if (blocks == null || blocks.isEmpty()) {
+            log.warn("结构化块列表为空，跳过分块: documentId={}", documentId);
+            return List.of();
+        }
+
+        List<DocumentChunk> allChunks = new ArrayList<>();
+        int chunkIndex = 0;
+
+        for (ContentBlock block : blocks) {
+            if (block.type() == ContentBlock.BlockType.HEADING) {
+                continue; // 标题信息已通过 headingPath 注入到后续块中
+            }
+
+            String headingPath = block.headingPath();
+            String prefixedContent;
+            if (!headingPath.isEmpty()) {
+                prefixedContent = headingPath + "\n" + block.content();
+            } else {
+                prefixedContent = block.content();
+            }
+
+            if (block.type() == ContentBlock.BlockType.TABLE) {
+                // 表格块：不切分，直接作为独立 chunk
+                allChunks.add(DocumentChunk.builder()
+                        .documentId(documentId)
+                        .chunkIndex(chunkIndex)
+                        .content(prefixedContent)
+                        .metadata(buildMetadata(documentId, documentTitle, chunkIndex, "table", headingPath))
+                        .build());
+                chunkIndex++;
+            } else {
+                // 段落块：走原有切分流程
+                List<DocumentChunk> subChunks = splitParagraphBlock(prefixedContent, documentId,
+                        documentTitle, headingPath, chunkIndex);
+                allChunks.addAll(subChunks);
+                chunkIndex += subChunks.size();
+            }
+        }
+
+        if (!allChunks.isEmpty()) {
+            documentChunkRepository.insertBatch(allChunks);
+            allChunks = documentChunkRepository.selectList(
+                    new LambdaQueryWrapper<DocumentChunk>()
+                            .eq(DocumentChunk::getDocumentId, documentId)
+                            .orderByAsc(DocumentChunk::getChunkIndex)
+            );
+        }
+
+        long tableCount = allChunks.stream()
+                .filter(c -> {
+                    JSONObject meta = JSONUtil.parseObj(c.getMetadata());
+                    return "table".equals(meta.getStr("chunk_type"));
+                }).count();
+        log.info("结构化分块完成: documentId={}, 块数={}, 其中表格块={}", documentId, allChunks.size(), tableCount);
+        return allChunks;
+    }
+
+    /**
+     * 对段落块进行细切分，复用已有的段落/句子切分逻辑
+     */
+    private List<DocumentChunk> splitParagraphBlock(String text, Long documentId,
+                                                     String documentTitle, String headingPath,
+                                                     int startIndex) {
+        List<DocumentChunk> result = new ArrayList<>();
+        List<String> paragraphs = splitByParagraph(text);
+        List<String> rawChunks = refineChunks(paragraphs);
+
+        for (int i = 0; i < rawChunks.size(); i++) {
+            result.add(DocumentChunk.builder()
+                    .documentId(documentId)
+                    .chunkIndex(startIndex + i)
+                    .content(rawChunks.get(i))
+                    .metadata(buildMetadata(documentId, documentTitle, startIndex + i, "text", headingPath))
+                    .build());
+        }
+        return result;
     }
 
     /**
@@ -169,14 +256,29 @@ public class ChunkService {
 
 
     /**
-     * 构建分块的元数据 JSON
+     * 构建分块的元数据 JSON（兼容旧格式）
      */
     private String buildMetadata(Long documentId, String title, int index) {
-        Map<String, Object> meta = Map.of(
-                "document_id", documentId,
-                "document_title", title,
-                "chunk_index", index
-        );
+        Map<String, Object> meta = new HashMap<>();
+        meta.put("document_id", documentId);
+        meta.put("document_title", title);
+        meta.put("chunk_index", index);
+        meta.put("chunk_type", "text");
+        meta.put("section_path", "");
+        return JSONUtil.toJsonStr(meta);
+    }
+
+    /**
+     * 构建分块的元数据 JSON（带 chunk_type 和 section_path）
+     */
+    private String buildMetadata(Long documentId, String title, int index,
+                                  String chunkType, String sectionPath) {
+        Map<String, Object> meta = new HashMap<>();
+        meta.put("document_id", documentId);
+        meta.put("document_title", title);
+        meta.put("chunk_index", index);
+        meta.put("chunk_type", chunkType);
+        meta.put("section_path", sectionPath != null ? sectionPath : "");
         return JSONUtil.toJsonStr(meta);
     }
 }
