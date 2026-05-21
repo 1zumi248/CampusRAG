@@ -3,6 +3,7 @@ package com.hznu.campusragbackend.rag.assistant;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import com.hznu.campusragbackend.model.DocumentChunk;
+import com.hznu.campusragbackend.model.SourceReference;
 import com.hznu.campusragbackend.rag.retrieval.RetrievalResult;
 import com.hznu.campusragbackend.rag.retrieval.RetrievalService;
 import lombok.RequiredArgsConstructor;
@@ -61,5 +62,32 @@ public class CampusRetrievalAugmentor {
             log.warn("解析元数据失败: {}", metadataJson, e);
             return "未知文档";
         }
+    }
+
+    private Long extractDocumentId(String metadataJson) {
+        try {
+            JSONObject meta = JSONUtil.parseObj(metadataJson);
+            String docIdStr = meta.getStr("document_id");
+            return docIdStr != null ? Long.valueOf(docIdStr) : null;
+        } catch (Exception e) {
+            log.warn("解析文档ID失败: {}", metadataJson, e);
+            return null;
+        }
+    }
+
+    /** 将检索结果转换为 SourceReference 列表，元数据解析集中在此处 */
+    public List<SourceReference> buildSources(List<RetrievalResult> results) {
+        return results.stream()
+                .map(r -> {
+                    DocumentChunk chunk = r.getChunk();
+                    return SourceReference.builder()
+                            .documentId(extractDocumentId(chunk.getMetadata()))
+                            .documentTitle(extractDocumentTitle(chunk.getMetadata()))
+                            .chunkContent(chunk.getContent())
+                            .chunkIndex(chunk.getChunkIndex())
+                            .similarityScore(r.getSimilarityScore())
+                            .build();
+                })
+                .toList();
     }
 }

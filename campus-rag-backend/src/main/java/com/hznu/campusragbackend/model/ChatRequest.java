@@ -1,9 +1,11 @@
 package com.hznu.campusragbackend.model;
 
+import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
 
 @Data
 public class ChatRequest {
-    private String question;       // 用户问题
-    private Long conversationId;   // 会话ID，null 表示新建会话
+    @NotBlank(message = "问题不能为空")
+    private String question;
+    private Long conversationId;
 }

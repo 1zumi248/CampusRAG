@@ -1,15 +1,12 @@
 package com.hznu.campusragbackend.service;
 
 import cn.hutool.crypto.digest.DigestUtil;
-import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import com.hznu.campusragbackend.model.ChatResponse;
-import com.hznu.campusragbackend.model.DocumentChunk;
 import com.hznu.campusragbackend.model.SourceReference;
 import com.hznu.campusragbackend.rag.assistant.CampusRetrievalAugmentor;
 import com.hznu.campusragbackend.rag.assistant.RagAssistant;
 import com.hznu.campusragbackend.rag.assistant.RetrievalContext;
-import com.hznu.campusragbackend.rag.retrieval.RetrievalResult;
 import dev.langchain4j.service.TokenStream;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -48,8 +45,8 @@ public class ChatService {
         }
 
         log.info("未命中缓存: {}", question);
-        Long effectiveConvId = resolveConversationId(conversationId);
-        ChatResponse response = doChat(question, effectiveConvId);
+        PreparedCtx ctx = prepareContext(question, conversationId);
+        ChatResponse response = doChat(question, ctx);
         redisTemplate.opsForValue().set(cacheKey, JSONUtil.toJsonStr(response),
                 Duration.ofSeconds(CACHE_EXPIRE_SECONDS));
         return response;
@@ -77,29 +74,28 @@ public class ChatService {
         }
 
         log.info("流式未命中缓存: {}", question);
+        PreparedCtx ctx = prepareContext(question, conversationId);
         long sseStartTime = System.currentTimeMillis();
         return Flux.<ServerSentEvent<String>>create(sink -> {
             try {
-                RetrievalContext ctx = campusRetrievalAugmentor.retrieveAndFormat(question);
                 log.info("[流式] 检索完成 +{}ms", System.currentTimeMillis() - sseStartTime);
+                sink.next(sse("conversation", ctx.conversationId().toString()));
 
-                sink.next(sse("conversation", effectiveConvId.toString()));
-
-                if (ctx.formattedText().isEmpty()) {
+                if (ctx.retrievalContext().formattedText().isEmpty()) {
                     String emptyAnswer = "抱歉，知识库中没有找到相关信息。";
-                    conversationService.saveMessage(effectiveConvId, question, emptyAnswer, List.of());
+                    conversationService.saveMessage(ctx.conversationId(), question, emptyAnswer, List.of());
                     sink.next(sse("token", emptyAnswer));
                     sink.next(sse("sources", "[]"));
                     sink.complete();
                     return;
                 }
 
-                List<SourceReference> sources = buildSources(ctx.results());
+                List<SourceReference> sources = campusRetrievalAugmentor.buildSources(ctx.retrievalContext().results());
                 String sourcesJson = JSONUtil.toJsonStr(sources);
                 StringBuilder fullAnswer = new StringBuilder();
                 java.util.concurrent.atomic.AtomicInteger tokenCount = new java.util.concurrent.atomic.AtomicInteger();
 
-                TokenStream tokenStream = ragAssistant.stream(ctx.formattedText(), question, effectiveConvId);
+                TokenStream tokenStream = ragAssistant.stream(ctx.retrievalContext().formattedText(), question, ctx.conversationId());
                 tokenStream
                         .onPartialResponse(token -> {
                             if (token != null && !token.isEmpty()) {
@@ -112,10 +108,10 @@ public class ChatService {
                         .onCompleteResponse(response -> {
                             log.info("[流式] 完成 +{}ms, 共{}个token", System.currentTimeMillis() - sseStartTime, tokenCount.get());
                             String finalAnswer = fullAnswer.toString();
-                            conversationService.saveMessage(effectiveConvId, question, finalAnswer, sources);
+                            conversationService.saveMessage(ctx.conversationId(), question, finalAnswer, sources);
                             redisTemplate.opsForValue().set(cacheKey,
                                     JSONUtil.toJsonStr(ChatResponse.builder()
-                                            .conversationId(effectiveConvId)
+                                            .conversationId(ctx.conversationId())
                                             .answer(finalAnswer)
                                             .sources(sources)
                                             .build()),
@@ -136,31 +132,37 @@ public class ChatService {
         }).subscribeOn(Schedulers.boundedElastic());
     }
 
+    private record PreparedCtx(Long conversationId, RetrievalContext retrievalContext) {}
+
     private Long resolveConversationId(Long conversationId) {
         return conversationId != null ? conversationId : conversationService.createConversation().getId();
     }
 
-    private ChatResponse doChat(String question, Long conversationId) {
-        RetrievalContext ctx = campusRetrievalAugmentor.retrieveAndFormat(question);
+    private PreparedCtx prepareContext(String question, Long conversationId) {
+        Long effectiveConvId = resolveConversationId(conversationId);
+        RetrievalContext retrievalCtx = campusRetrievalAugmentor.retrieveAndFormat(question);
+        return new PreparedCtx(effectiveConvId, retrievalCtx);
+    }
 
-        if (ctx.formattedText().isEmpty()) {
+    private ChatResponse doChat(String question, PreparedCtx ctx) {
+        if (ctx.retrievalContext().formattedText().isEmpty()) {
             log.warn("未找到相关文档: {}", question);
             String emptyAnswer = "抱歉，知识库中没有找到相关信息。";
-            conversationService.saveMessage(conversationId, question, emptyAnswer, List.of());
+            conversationService.saveMessage(ctx.conversationId(), question, emptyAnswer, List.of());
             return ChatResponse.builder()
-                    .conversationId(conversationId)
+                    .conversationId(ctx.conversationId())
                     .answer(emptyAnswer)
                     .sources(new ArrayList<>())
                     .build();
         }
 
-        String answer = ragAssistant.answer(ctx.formattedText(), question, conversationId);
-        List<SourceReference> sources = buildSources(ctx.results());
-        conversationService.saveMessage(conversationId, question, answer, sources);
+        String answer = ragAssistant.answer(ctx.retrievalContext().formattedText(), question, ctx.conversationId());
+        List<SourceReference> sources = campusRetrievalAugmentor.buildSources(ctx.retrievalContext().results());
+        conversationService.saveMessage(ctx.conversationId(), question, answer, sources);
 
-        log.info("问答处理完成: conversationId={}", conversationId);
+        log.info("问答处理完成: conversationId={}", ctx.conversationId());
         return ChatResponse.builder()
-                .conversationId(conversationId)
+                .conversationId(ctx.conversationId())
                 .answer(answer)
                 .sources(sources)
                 .build();
@@ -168,41 +170,5 @@ public class ChatService {
 
     private static ServerSentEvent<String> sse(String event, String data) {
         return ServerSentEvent.<String>builder().event(event).data(data).build();
-    }
-
-    private List<SourceReference> buildSources(List<RetrievalResult> results) {
-        return results.stream()
-                .map(r -> {
-                    DocumentChunk chunk = r.getChunk();
-                    return SourceReference.builder()
-                            .documentId(extractDocumentId(chunk.getMetadata()))
-                            .documentTitle(extractDocumentTitle(chunk.getMetadata()))
-                            .chunkContent(chunk.getContent())
-                            .chunkIndex(chunk.getChunkIndex())
-                            .similarityScore(r.getSimilarityScore())
-                            .build();
-                })
-                .toList();
-    }
-
-    private String extractDocumentTitle(String metadataJson) {
-        try {
-            JSONObject meta = JSONUtil.parseObj(metadataJson);
-            return meta.getStr("document_title", "未知文档");
-        } catch (Exception e) {
-            log.warn("解析元数据失败: {}", metadataJson, e);
-            return "未知文档";
-        }
-    }
-
-    private Long extractDocumentId(String metadataJson) {
-        try {
-            JSONObject meta = JSONUtil.parseObj(metadataJson);
-            String docIdStr = meta.getStr("document_id");
-            return docIdStr != null ? Long.valueOf(docIdStr) : null;
-        } catch (Exception e) {
-            log.warn("解析文档ID失败: {}", metadataJson, e);
-            return null;
-        }
     }
 }

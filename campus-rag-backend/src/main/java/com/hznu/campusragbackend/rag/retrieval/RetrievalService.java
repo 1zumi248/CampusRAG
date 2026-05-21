@@ -1,5 +1,6 @@
 package com.hznu.campusragbackend.rag.retrieval;
 
+import com.hznu.campusragbackend.common.exception.RetrievalException;
 import com.hznu.campusragbackend.model.DocumentChunk;
 import com.hznu.campusragbackend.repository.DocumentChunkRepository;
 import dev.langchain4j.data.embedding.Embedding;
@@ -40,17 +41,25 @@ public class RetrievalService {
     public List<RetrievalResult> retrieve(String query, int topK) {
         log.info("开始检索: query={}, topK={}, minScore={}", query, topK, minScore);
 
-        // 1. 将问题转换为 embedding
-        Embedding queryEmbedding = embeddingModel.embed(query).content();
+        Embedding queryEmbedding;
+        try {
+            queryEmbedding = embeddingModel.embed(query).content();
+        } catch (Exception e) {
+            throw new RetrievalException("Embedding 模型调用失败", e);
+        }
 
-        // 2. 在向量库中检索 Top-K 相似片段
-        EmbeddingSearchResult<TextSegment> result = embeddingStore.search(
-            EmbeddingSearchRequest.builder()
-                .queryEmbedding(queryEmbedding)
-                .maxResults(topK)
-                .minScore(minScore)
-                .build()
-        );
+        EmbeddingSearchResult<TextSegment> result;
+        try {
+            result = embeddingStore.search(
+                EmbeddingSearchRequest.builder()
+                    .queryEmbedding(queryEmbedding)
+                    .maxResults(topK)
+                    .minScore(minScore)
+                    .build()
+            );
+        } catch (Exception e) {
+            throw new RetrievalException("向量库搜索失败", e);
+        }
         List<EmbeddingMatch<TextSegment>> matches = result.matches();
 
         log.info("检索到 {} 个符合条件的结果", matches.size());

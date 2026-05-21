@@ -34,12 +34,7 @@ public class DocumentController {
      */
     @GetMapping("/{id}")
     public Result<Document> getDocumentById(@PathVariable Long id) {
-        Document document = documentService.getDocumentById(id);
-        if (document != null) {
-            return Result.ok(document);
-        } else {
-            return Result.error(404, "文档不存在");
-        }
+        return Result.ok(documentService.getDocumentById(id));
     }
     
     /**
