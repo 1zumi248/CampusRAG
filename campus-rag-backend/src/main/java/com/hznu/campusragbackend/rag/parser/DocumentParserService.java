@@ -64,6 +64,12 @@ public class DocumentParserService {
             String htmlContent = parsedHtml.html();
             String plainText = parsedHtml.plainText();
 
+            // HTML 过大防护：避免超大文档导致后续解析 OOM
+            if (htmlContent.length() > Constants.DOC_PARSE_MAX_CHARS * 2) {
+                throw new IllegalArgumentException(
+                        "文档内容过大（" + htmlContent.length() + " 字符），超过上限 " + Constants.DOC_PARSE_MAX_CHARS * 2);
+            }
+
             //空文本检查（Tika 无法识别的格式/损坏文件/图片等）
             if (plainText.isBlank()) {
                 throw new IllegalArgumentException("无法从文件中提取文本内容，文件可能为图片、扫描件或不受支持的格式");

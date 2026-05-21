@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref, nextTick, onMounted } from 'vue'
-import { Plus, Promotion, Delete } from '@element-plus/icons-vue'
+import { Plus, Promotion, Delete, DArrowLeft, DArrowRight } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { marked } from 'marked'
 import {
   getConversations,
   getMessages,
@@ -18,6 +19,7 @@ interface Message {
   sources: ChatResponse['sources']
   streaming: boolean
   error: boolean
+  renderedHtml: string
 }
 
 const conversations = ref<ConversationItem[]>([])
@@ -28,8 +30,37 @@ const sending = ref(false)
 const chatBody = ref<HTMLElement>()
 const inputRef = ref<HTMLTextAreaElement>()
 const loadingMessages = ref(false)
+const sidebarCollapsed = ref(false)
+const sidebarWidth = ref(260)
+const isDragging = ref(false)
+const sidebarRef = ref<HTMLElement>()
 
 onMounted(() => loadConversations())
+
+function toggleSidebar() {
+  sidebarCollapsed.value = !sidebarCollapsed.value
+}
+
+function startDrag(e: MouseEvent) {
+  isDragging.value = true
+  document.addEventListener('mousemove', onDrag)
+  document.addEventListener('mouseup', stopDrag)
+  e.preventDefault()
+}
+
+function onDrag(e: MouseEvent) {
+  if (!isDragging.value) return
+  const rect = sidebarRef.value?.getBoundingClientRect()
+  if (!rect) return
+  const newWidth = e.clientX - rect.left
+  sidebarWidth.value = Math.min(500, Math.max(200, newWidth))
+}
+
+function stopDrag() {
+  isDragging.value = false
+  document.removeEventListener('mousemove', onDrag)
+  document.removeEventListener('mouseup', stopDrag)
+}
 
 function scrollToBottom() {
   nextTick(() => {
@@ -53,14 +84,18 @@ async function selectConversation(conv: ConversationItem) {
   loadingMessages.value = true
   try {
     const history = await getMessages(conv.id)
-    messages.value = history.map((m: MessageItem) => ({
-      id: m.id,
-      question: m.question,
-      answer: m.answer ?? '',
-      sources: parseSources(m.sources),
-      streaming: false,
-      error: false,
-    }))
+    messages.value = history.map((m: MessageItem) => {
+      const answer = m.answer ?? ''
+      return {
+        id: m.id,
+        question: m.question,
+        answer,
+        sources: parseSources(m.sources),
+        streaming: false,
+        error: false,
+        renderedHtml: renderMarkdown(answer),
+      }
+    })
   } catch {
     ElMessage.error('加载历史消息失败')
   } finally {
@@ -121,6 +156,7 @@ async function handleSend() {
     sources: [],
     streaming: true,
     error: false,
+    renderedHtml: '',
   })
   // 关键：从响应式数组里取出来的才是 Vue 的 Proxy 代理；
   // 直接改 push 前的局部对象不会触发响应式更新（Vue3 Proxy 机制）
@@ -176,12 +212,19 @@ async function handleSend() {
         }
       }
     }
+    console.log('[Stream] done, answer length:', msg.answer.length)
+    // 先切换 streaming 状态，让 Vue 完成 DOM 切换（pre → div）
     msg.streaming = false
+    // 等待 Vue DOM 更新完成后再设置 innerHTML，避免批处理导致 v-html 不生效
+    await nextTick()
+    msg.renderedHtml = renderMarkdown(msg.answer)
+    console.log('[Stream] renderedHtml set, length:', msg.renderedHtml.length)
   } catch {
     if (!msg.answer) {
       msg.error = true
       msg.answer = '请求失败，请检查后端服务是否启动'
     }
+    msg.renderedHtml = msg.answer
     msg.streaming = false
   } finally {
     sending.value = false
@@ -196,19 +239,31 @@ function handleKeydown(e: KeyboardEvent) {
     handleSend()
   }
 }
+
+function renderMarkdown(text: string): string {
+  if (!text) return ''
+  try {
+    const result = marked.parse(text, { async: false })
+    console.log('[Markdown] rendered', text.length, 'chars →', result.length, 'chars, preview:', result.slice(0, 80))
+    return result
+  } catch (e) {
+    console.error('[Markdown] render failed:', e)
+    return text.replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  }
+}
 </script>
 
 <template>
-  <div class="chat-layout">
+  <div class="chat-layout" :class="{ 'is-resizing': isDragging }">
     <!-- 左侧会话列表 -->
-    <aside class="chat-sidebar">
+    <aside ref="sidebarRef" class="chat-sidebar" :class="{ collapsed: sidebarCollapsed }" :style="{ width: sidebarCollapsed ? '44px' : sidebarWidth + 'px' }">
       <div class="sidebar-header">
-        <button class="new-chat-btn" @click="handleNewChat">
+        <button v-if="!sidebarCollapsed" class="new-chat-btn" @click="handleNewChat">
           <el-icon :size="16"><Plus /></el-icon>
           <span>新建会话</span>
         </button>
       </div>
-      <div class="conv-list">
+      <div v-show="!sidebarCollapsed" class="conv-list">
         <div
           v-for="conv in conversations"
           :key="conv.id"
@@ -217,16 +272,24 @@ function handleKeydown(e: KeyboardEvent) {
           @click="selectConversation(conv)"
         >
           <span class="conv-title">{{ conv.title }}</span>
-          <el-popconfirm title="确定删除？" @confirm="handleDeleteConv(conv)">
-            <template #reference>
-              <button class="conv-delete" @click.stop><el-icon :size="14"><Delete /></el-icon></button>
-            </template>
-          </el-popconfirm>
+          <button class="conv-delete" @click.stop="handleDeleteConv(conv)">
+            <el-icon :size="14"><Delete /></el-icon>
+          </button>
         </div>
         <div v-if="conversations.length === 0" class="conv-empty">
           暂无会话，开始提问吧
         </div>
       </div>
+      <!-- 折叠按钮：位于侧边栏右边缘中间，始终跟随 sidebarWidth 位置 -->
+      <button class="collapse-btn" @click="toggleSidebar" :title="sidebarCollapsed ? '展开侧栏' : '收起侧栏'"
+              :style="{ left: (sidebarCollapsed ? 44 : sidebarWidth) + 'px' }">
+        <el-icon :size="14">
+          <DArrowLeft v-if="!sidebarCollapsed" />
+          <DArrowRight v-else />
+        </el-icon>
+      </button>
+      <!-- 拖拽手柄 -->
+      <div v-if="!sidebarCollapsed" class="resize-handle" @mousedown="startDrag"></div>
     </aside>
 
     <!-- 右侧问答区 -->
@@ -255,7 +318,8 @@ function handleKeydown(e: KeyboardEvent) {
             <div class="msg-avatar a-avatar">A</div>
             <div class="msg-content">
               <div class="answer-text" :class="{ 'error-text': msg.error }">
-                <pre>{{ msg.answer }}<span v-if="msg.streaming" class="stream-cursor">|</span></pre>
+                <pre v-if="msg.streaming || msg.error">{{ msg.answer }}<span v-if="msg.streaming" class="stream-cursor">|</span></pre>
+                <div v-else class="markdown-body" v-html="msg.renderedHtml"></div>
               </div>
               <div v-if="!msg.streaming && !msg.error && msg.sources.length > 0" class="sources-box">
                 <div class="sources-title">引用来源</div>
@@ -306,21 +370,39 @@ function handleKeydown(e: KeyboardEvent) {
   gap: 0;
 }
 
+.chat-layout.is-resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+
 /* ---------- 左侧边栏 ---------- */
 .chat-sidebar {
-  width: 260px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  border-right: 1px solid var(--border);
   background: var(--white);
   border-radius: 10px 0 0 10px;
-  overflow: hidden;
+  overflow: visible;
+  position: relative;
+  transition: width 0.25s ease;
+  user-select: none;
+}
+
+.chat-sidebar.collapsed {
+  border-radius: 10px 0 0 10px;
+  min-width: 44px;
 }
 
 .sidebar-header {
-  padding: 16px;
+  padding: 12px;
   border-bottom: 1px solid var(--border);
+  min-height: 60px;
+  border-radius: 10px 0 0 0;
+  overflow: hidden;
+}
+
+.collapsed .sidebar-header {
+  padding: 8px 4px;
 }
 
 .new-chat-btn {
@@ -337,6 +419,7 @@ function handleKeydown(e: KeyboardEvent) {
   font-size: 14px;
   cursor: pointer;
   transition: all 0.2s;
+  white-space: nowrap;
 }
 
 .new-chat-btn:hover {
@@ -345,9 +428,60 @@ function handleKeydown(e: KeyboardEvent) {
   background: var(--green-bg);
 }
 
+.collapse-btn {
+  position: absolute;
+  left: 260px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 24px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 0 12px 12px 0;
+  background: var(--white);
+  color: var(--text-secondary);
+  cursor: pointer;
+  z-index: 20;
+  transition: left 0.25s ease, background 0.2s, color 0.2s, box-shadow 0.2s;
+  padding: 0;
+  box-shadow: 2px 0 3px -1px rgba(0, 0, 0, 0.07), 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.collapse-btn:hover {
+  background: var(--green-bg);
+  color: var(--green);
+}
+
+.collapsed .collapse-btn {
+  border-radius: 0 12px 12px 0;
+  box-shadow: 2px 0 4px -1px rgba(0, 0, 0, 0.09), 0 1px 3px rgba(0, 0, 0, 0.07);
+}
+
+/* 拖拽调整宽度手柄 */
+.resize-handle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 5px;
+  height: 100%;
+  cursor: col-resize;
+  background: transparent;
+  transition: background 0.2s;
+  z-index: 10;
+}
+
+.resize-handle:hover,
+.resize-handle:active {
+  background: var(--green);
+  opacity: 0.3;
+}
+
 .conv-list {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 8px;
 }
 
@@ -411,6 +545,8 @@ function handleKeydown(e: KeyboardEvent) {
   flex-direction: column;
   background: var(--bg);
   border-radius: 0 10px 10px 0;
+  border-left: 1px solid var(--border);
+  margin-left: -1px;
 }
 
 .chat-body {
@@ -504,6 +640,123 @@ function handleKeydown(e: KeyboardEvent) {
   font-size: 14px;
   line-height: 1.7;
   margin: 0;
+}
+
+.markdown-body {
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--text);
+}
+
+.markdown-body :deep(h1),
+.markdown-body :deep(h2),
+.markdown-body :deep(h3),
+.markdown-body :deep(h4) {
+  margin: 16px 0 8px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.markdown-body :deep(h2) {
+  font-size: 17px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.markdown-body :deep(h3) {
+  font-size: 15px;
+}
+
+.markdown-body :deep(p) {
+  margin: 6px 0;
+}
+
+.markdown-body :deep(ul),
+.markdown-body :deep(ol) {
+  padding-left: 20px;
+  margin: 6px 0;
+}
+
+.markdown-body :deep(li) {
+  margin-bottom: 4px;
+}
+
+.markdown-body :deep(blockquote) {
+  margin: 8px 0;
+  padding: 6px 14px;
+  border-left: 3px solid var(--green);
+  background: var(--green-bg);
+  color: var(--text-secondary);
+}
+
+.markdown-body :deep(code) {
+  padding: 1px 5px;
+  font-size: 13px;
+  font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  background: #f3f4f6;
+  border-radius: 3px;
+}
+
+.markdown-body :deep(pre) {
+  margin: 10px 0;
+  padding: 12px 16px;
+  font-size: 13px;
+  font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  background: #1e293b;
+  color: #e2e8f0;
+  border-radius: 6px;
+  overflow-x: auto;
+}
+
+.markdown-body :deep(pre code) {
+  padding: 0;
+  font-size: inherit;
+  background: transparent;
+  border-radius: 0;
+  color: inherit;
+}
+
+.markdown-body :deep(table) {
+  width: 100%;
+  margin: 10px 0;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.markdown-body :deep(th),
+.markdown-body :deep(td) {
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  text-align: left;
+}
+
+.markdown-body :deep(th) {
+  background: #f9fafb;
+  font-weight: 600;
+}
+
+.markdown-body :deep(tr:nth-child(even)) {
+  background: #f9fafb;
+}
+
+.markdown-body :deep(a) {
+  color: var(--green);
+  text-decoration: none;
+}
+
+.markdown-body :deep(a:hover) {
+  text-decoration: underline;
+}
+
+.markdown-body :deep(hr) {
+  margin: 14px 0;
+  border: none;
+  border-top: 1px solid var(--border);
+}
+
+.markdown-body :deep(strong) {
+  font-weight: 600;
+  color: var(--text);
 }
 
 .error-text pre {

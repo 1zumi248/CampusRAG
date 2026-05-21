@@ -11,14 +11,19 @@ import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Pattern;
 
 /**
- * 解析 Tika 输出的 HTML，提取文档结构：标题层级、段落、表格。
+ * 解析 Tika 输出的 HTML，提取文档结构：标题层级、段落、表格、列表。
  * 每个非标题块会关联当前所处的标题路径，解决"标题-内容分离"问题。
  */
 @Slf4j
 @Component
 public class HtmlParserService {
+
+    private static final Pattern HEADING_TAG = Pattern.compile("h[1-6]");
+    private static final Pattern LIST_TAG = Pattern.compile("ul|ol");
+    private static final Pattern CODE_TAG = Pattern.compile("pre|code");
 
     /**
      * 解析 HTML 字符串，产出有序的结构化块列表
@@ -30,22 +35,22 @@ public class HtmlParserService {
         }
 
         Document doc = Jsoup.parse(html);
-        Element body = doc.body();
-        if (body == null) {
-            return blocks;
-        }
+        // body 不存在时回退到 document 根元素（兼容 Tika PDF 等无 body 的输出）
+        Element root = doc.body() != null ? doc.body() : doc;
 
         List<String> headingStack = new ArrayList<>();
         StringBuilder textBuffer = new StringBuilder();
         int order = 0;
 
-        for (Node child : body.childNodes()) {
+        for (Node child : root.childNodes()) {
             if (child instanceof Element el) {
                 String tag = el.normalName();
 
-                if (tag.matches("h[1-6]")) {
+                if (HEADING_TAG.matcher(tag).matches()) {
                     // 标题节点：先提交缓冲区中的文本，再处理标题
-                    flushTextBuffer(textBuffer, headingStack, order++, blocks);
+                    if (flushTextBuffer(textBuffer, headingStack, blocks, order)) {
+                        order++;
+                    }
                     int level = Integer.parseInt(tag.substring(1));
                     String headingText = el.wholeText().trim();
                     if (!headingText.isEmpty()) {
@@ -54,11 +59,30 @@ public class HtmlParserService {
                         blocks.add(ContentBlock.heading(headingText, stackToPath(headingStack), level, order++));
                     }
                 } else if (tag.equals("table")) {
-                    // 表格节点：先提交缓冲区文本，再处理表格
-                    flushTextBuffer(textBuffer, headingStack, order++, blocks);
+                    if (flushTextBuffer(textBuffer, headingStack, blocks, order)) {
+                        order++;
+                    }
                     String markdown = convertTableToMarkdown(el);
                     if (!markdown.isEmpty()) {
                         blocks.add(ContentBlock.table(markdown, stackToPath(headingStack), order++));
+                    }
+                } else if (LIST_TAG.matcher(tag).matches()) {
+                    // 列表：提取各列表项文本，用换行连接，保持结构
+                    if (flushTextBuffer(textBuffer, headingStack, blocks, order)) {
+                        order++;
+                    }
+                    String listText = extractListText(el);
+                    if (!listText.isEmpty()) {
+                        textBuffer.append(listText);
+                    }
+                } else if (CODE_TAG.matcher(tag).matches()) {
+                    // 代码块：保留原始格式，用反引号包裹
+                    if (flushTextBuffer(textBuffer, headingStack, blocks, order)) {
+                        order++;
+                    }
+                    String codeText = el.wholeText().trim();
+                    if (!codeText.isEmpty()) {
+                        textBuffer.append("```\n").append(codeText).append("\n```");
                     }
                 } else {
                     // 段落/div/其他容器：提取内部文本
@@ -82,7 +106,7 @@ public class HtmlParserService {
         }
 
         // 提交末尾缓冲区
-        flushTextBuffer(textBuffer, headingStack, order, blocks);
+        flushTextBuffer(textBuffer, headingStack, blocks, order);
 
         log.info("HTML 解析完成: 提取 {} 个结构化块 (标题={}, 表格={}, 段落={})",
                 blocks.size(),
@@ -95,17 +119,19 @@ public class HtmlParserService {
 
     // ========== 内部方法 ==========
 
-    /** 将文本缓冲区提交为一个 PARAGRAPH 块 */
-    private void flushTextBuffer(StringBuilder buffer, List<String> headingStack,
-                                  int order, List<ContentBlock> blocks) {
+    /** 将文本缓冲区提交为一个 PARAGRAPH 块，返回是否实际刷新了内容 */
+    private boolean flushTextBuffer(StringBuilder buffer, List<String> headingStack,
+                                     List<ContentBlock> blocks, int order) {
         if (buffer.isEmpty()) {
-            return;
+            return false;
         }
         String text = buffer.toString().trim();
         buffer.setLength(0);
         if (!text.isEmpty()) {
             blocks.add(ContentBlock.paragraph(text, stackToPath(headingStack), order));
+            return true;
         }
+        return false;
     }
 
     /** 截断标题栈到指定深度 */
@@ -124,10 +150,12 @@ public class HtmlParserService {
     }
 
     /**
-     * 将 HTML table 转为 Markdown 表格格式
+     * 将 HTML table 转为 Markdown 表格格式。
+     * 使用 > 限定直接子行，避免嵌套表格干扰。
      */
     private String convertTableToMarkdown(Element table) {
-        Elements rows = table.select("tr");
+        // 只取直接子行（thead/tbody 下的 tr 或直接 tr），排除嵌套表格的行
+        Elements rows = table.select("> thead > tr, > tbody > tr, > tr");
         if (rows.isEmpty()) {
             return "";
         }
@@ -137,8 +165,7 @@ public class HtmlParserService {
 
         for (Element row : rows) {
             List<String> cells = new ArrayList<>();
-            // 同时取 th 和 td（处理表头和表体）
-            for (Element cell : row.select("th, td")) {
+            for (Element cell : row.select("> th, > td")) {
                 String cellText = cell.wholeText().trim();
                 // 清理换行符，保持单元格内容在单行
                 cellText = cellText.replace('\n', ' ').replaceAll("\\s+", " ");
@@ -170,7 +197,6 @@ public class HtmlParserService {
             sb.append(String.join(" | ", row));
             sb.append(" |\n");
 
-            // 第一行后添加分隔线
             if (i == 0) {
                 sb.append("| ");
                 for (int j = 0; j < maxCols; j++) {
@@ -182,5 +208,21 @@ public class HtmlParserService {
         }
 
         return sb.toString().trim();
+    }
+
+    /** 提取列表文本，每项加前缀保持可读性 */
+    private String extractListText(Element list) {
+        Elements items = list.select("> li");
+        if (items.isEmpty()) {
+            return list.wholeText().trim();
+        }
+        StringBuilder sb = new StringBuilder();
+        for (Element item : items) {
+            if (!sb.isEmpty()) {
+                sb.append("\n");
+            }
+            sb.append("- ").append(item.wholeText().trim());
+        }
+        return sb.toString();
     }
 }

@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s http://localhost:8080/api/test/all)",
+      "Bash(psql --version)",
+      "Bash(pg_isready)",
+      "Bash(redis-cli ping *)",
+      "Bash(mvn spring-boot:run -q)",
+      "Bash(where mvn *)",
+      "Read(//c/Program Files/**)",
+      "Bash(sc query *)",
+      "Bash(cmd.exe *)",
+      "Bash(cat)",
+      "Bash(powershell.exe -File E:/RAG/test_services3.ps1)",
+      "Bash(wsl bash *)",
+      "Bash(java -version)",
+      "Bash(mvn -version)",
+      "Bash(taskkill //F //IM java.exe)",
+      "Bash(cmd *)",
+      "Bash(taskkill //F //PID 8540)",
+      "Bash(curl -s http://localhost:8080/api/conversations)",
+      "Bash(command -v tmux)",
+      "Read(//usr/bin/**)",
+      "Read(//bin/**)",
+      "Read(//e//**)"
+    ]
+  }
+}

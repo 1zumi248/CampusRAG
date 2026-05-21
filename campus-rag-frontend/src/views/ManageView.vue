@@ -139,11 +139,9 @@ onMounted(loadDocuments)
               <span>{{ formatTime(doc.createdAt) }}</span>
             </div>
           </div>
-          <el-popconfirm title="确定删除？" @confirm="handleDelete(doc)">
-            <template #reference>
-              <el-button type="danger" :icon="Delete" circle size="small" text />
-            </template>
-          </el-popconfirm>
+          <button class="doc-delete" @click="handleDelete(doc)">
+            <el-icon :size="16"><Delete /></el-icon>
+          </button>
         </div>
       </div>
     </div>
@@ -276,5 +274,23 @@ onMounted(loadDocuments)
 
 .doc-dot {
   color: #d1d5db;
+}
+
+.doc-delete {
+  border: none;
+  background: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: all 0.15s;
+}
+.doc-delete:hover {
+  color: #ef4444;
+  background: #fef2f2;
 }
 </style>
