@@ -100,27 +100,42 @@
   → Redis 缓存检查 (MD5 哈希)
   → 命中 → 直接返回
   → 未命中:
-      → EmbeddingModel.embed(question) → 1024维向量
-      → pgvector.search(topK=5, minScore=0.4)
-      → 批量查询 document_chunks 获取完整内容
-      → 格式化为 LLM 上下文文本
-      → RagAssistant.stream(context, question) → SSE 逐 Token 推送
+      → prepareContext()
+      │   ├─ resolveConversationId()     // 无 ID 则创建新会话
+      │   └─ retrieveAndFormat(question)  // EmbeddingModel → pgvector → 格式化上下文
+      │
+      → RagAssistant.stream(context, question, @MemoryId)
+      │   ├─ LangChain4j 自动读写 ChatMemory (PostgreSQL JSONB)
+      │   └─ SSE 逐 Token 推送 (首字延迟 < 200ms)
+      │
       → 回答缓存至 Redis (1h TTL)
 ```
+
+### ChatMemory 双表存储
+
+| 表 | 用途 | 内容 |
+|----|------|------|
+| `messages` | 前端渲染 + 持久化 | 供 `ConversationService` 查询，供前端展示历史 |
+| `chat_memory` | LLM 上下文 | LangChain4j 读写，JSONB 格式，10 条消息窗口 |
 
 ### 文档入库流程
 
 ```
-文件上传
-  → Apache Tika (ToHTMLContentHandler) → HTML
+文件上传 (MultipartFile)
+  → DocumentService.uploadDocument()
+  │   ├─ 捕获文件名，投喂 Apache Tika (ToHTMLContentHandler)
+  │   └─ 若解析失败 → 抛出 DocumentParseException → 422
+  │
   → HtmlParserService 提取结构:
-      ├─ 标题层级 (h1-h6) → 维护 headingStack
-      ├─ 表格 → 转 Markdown 格式 → 独立 chunk 不切分
-      └─ 段落 → 关联标题路径 (section_path)
+  │   ├─ 标题层级 (h1-h6) → 维护 headingStack
+  │   ├─ 表格 → 转 Markdown 格式 → 独立 chunk 不切分
+  │   └─ 段落 → 关联标题路径 (section_path)
+  │
   → ChunkService 分块:
-      ├─ 段落: 标题路径 + 内容 → 按\n\n切段 → 按句子细切 (300-800字)
-      ├─ 表格: 标题路径 + Markdown 表格 → 单 chunk 不切分
-      └─ 50字重叠 + 短块合并
+  │   ├─ 段落: 标题路径 + 内容 → 按\n\n切段 → 按句子细切 (300-800字)
+  │   ├─ 表格: 标题路径 + Markdown 表格 → 单 chunk 不切分
+  │   └─ 50字重叠 + 短块合并
+  │
   → EmbeddingService 批量向量化 (每批10条)
   → 存入 pgvector + document_chunks 表
 ```
@@ -263,34 +278,78 @@ CampusRAG/
 │   └── src/main/
 │       ├── java/com/hznu/campusragbackend/
 │       │   ├── config/                  # 配置 (LangChain4j, MyBatis, Web)
-│       │   ├── controller/              # REST 接口
+│       │   ├── controller/              # REST 接口（薄壳，职责：参数提取 + @Valid 校验）
 │       │   ├── model/                   # 数据模型 (Document, Chunk, Conversation...)
 │       │   ├── repository/              # MyBatis-Plus Mapper
-│       │   ├── service/                 # 业务服务 (Document, Chat, Conversation)
-│       │   ├── common/                  # 常量、全局异常、统一返回
+│       │   ├── service/                 # 业务服务（3 个具体类，无接口）
+│       │   │   ├── DocumentService      # CRUD + 文件解析（聚合 Tika + ChunkService）
+│       │   │   ├── ChatService          # 问答编排（聚合 RetrievalService + RagAssistant）
+│       │   │   └── ConversationService # 会话管理
+│       │   ├── common/
+│       │   │   ├── GlobalExceptionHandler  # @RestControllerAdvice，统一错误映射
+│       │   │   ├── Result.java             # 统一返回格式 { code, data, message }
+│       │   │   └── exception/              # 自定义异常（按 HTTP 状态分类）
+│       │   │       ├── DocumentNotFoundException  → 404
+│       │   │       ├── DocumentParseException     → 422
+│       │   │       └── RetrievalException         → 502
 │       │   └── rag/
-│       │       ├── assistant/           # @AiService + 检索增强器
-│       │       ├── chunk/               # 分块策略
-│       │       ├── embedding/           # 向量化服务
-│       │       ├── parser/              # 文档解析 (Tika + HTML 结构提取)
-│       │       └── retrieval/           # 向量检索
+│       │       ├── assistant/
+│       │       │   ├── RagAssistant        # @AiService（LangChain4j 动态代理）
+│       │       │   └── CampusRetrievalAugmentor  # 检索结果格式化 + 元数据解析
+│       │       ├── chunk/                 # 分块策略（段落/表格/重叠窗口/短块合并）
+│       │       ├── embedding/              # 向量化服务（批量提交 pgvector）
+│       │       ├── parser/                # 文档解析（Tika ToHTML + Jsoup 结构提取）
+│       │       └── retrieval/             # 向量检索（EmbeddingModel → EmbeddingStore → 批量回查）
 │       └── resources/
-│           ├── application.yaml         # 主配置
-│           └── sql/schema.sql           # 建表脚本
+│           ├── application.yaml           # 主配置
+│           └── sql/schema.sql             # 建表脚本（含 pgvector 索引）
 │
 ├── campus-rag-frontend/                 # 前端 (Vue 3)
 │   ├── package.json
-│   ├── vite.config.ts                   # Vite 配置 (含 SSE 代理)
+│   ├── vite.config.ts                   # Vite 配置（含 SSE 代理特殊头）
 │   └── src/
-│       ├── api/                         # Axios 封装 + API 接口
-│       ├── views/                       # 页面 (ChatView, ManageView)
-│       ├── router/                      # 路由配置
-│       ├── App.vue                      # 根组件 (侧边栏布局)
-│       └── main.ts                      # 入口
+│       ├── api/                         # Axios 封装（响应拦截器自动 unwrap）
+│       ├── components/
+│       │   ├── ChatSidebar.vue          # 会话列表（折叠/拖拽调整宽度）
+│       │   ├── MessageList.vue          # 消息渲染（Markdown + 引用来源）
+│       │   └── ChatInput.vue            # 输入框（Enter 发送 / Shift+Enter 换行）
+│       ├── views/
+│       │   ├── ChatView.vue             # 问答页（状态管理 + SSE 编排，246 行）
+│       │   └── ManageView.vue            # 文档管理页
+│       ├── router/index.ts              # 路由（/chat → ChatView，/manage → ManageView）
+│       ├── App.vue                      # 根组件（侧边栏布局 + 导航菜单）
+│       └── main.ts                      # 入口（createApp + ElementPlus + Router）
 │
-├── .env.example                         # 环境变量模板
+├── .architecture-backend.html           # 后端架构全景图（手绘方块图）
+├── .architecture-frontend.html          # 前端架构全景图（手绘方块图）
+├── exp/                                # 实验记录
 └── README.md
 ```
+
+### 架构设计原则
+
+| 原则 | 说明 |
+|------|------|
+| 薄 Controller | `@Valid` 校验 + 参数提取，无手写 null/blank 检查 |
+| 具体类优先 | service 层只有具体类，无冗余接口（删除测试验证） |
+| 异常分类 | 自定义异常按 HTTP 状态码区分，全局 handler 统一映射 |
+| 前端组件拆分 | ChatView 从 887 行拆为 3 个独立组件（Props/Emits/Expose 契约清晰） |
+| SSE 直连 | 流式问答不走 Axios，直接 `fetch() + ReadableStream` 实时解析 |
+| `PreparedCtx` record | 提取 `doChat()` 与 `streamChat()` 的共同前置逻辑（会话解析 + 检索编排） |
+
+---
+
+## 错误处理体系
+
+全局异常处理 `GlobalExceptionHandler` 按类型映射 HTTP 状态码：
+
+| 异常 | HTTP 状态 | 说明 |
+|------|----------|------|
+| `DocumentNotFoundException` | 404 | 文档不存在或已删除 |
+| `DocumentParseException` | 422 | 文件解析失败（如 Tika 无法处理） |
+| `RetrievalException` | 502 | 向量检索失败（如 EmbeddingModel/EmbeddingStore 调用异常） |
+| `MethodArgumentNotValidException` | 400 | 请求参数校验失败（`@NotBlank` 等注解触发） |
+| `RuntimeException` | 500 | 其他未预料异常 |
 
 ---
 
@@ -323,6 +382,7 @@ rag:
 - PDF 文档经 Tika 解析后标题质量取决于原始排版，扫描件/图片型 PDF 无法提取文字
 - 合并单元格的复杂表格转 Markdown 后可能丢失跨行/跨列语义
 - 上传文件限制 50MB，单次解析上限约 50 万字符
+- DashScope API 调用有 QPS 限制，高并发场景需添加限流机制
 
 ---
 
