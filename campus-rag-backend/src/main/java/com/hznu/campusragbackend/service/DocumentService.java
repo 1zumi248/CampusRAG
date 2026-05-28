@@ -2,6 +2,8 @@ package com.hznu.campusragbackend.service;
 
 import cn.hutool.crypto.digest.DigestUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.hznu.campusragbackend.common.exception.DocumentNotFoundException;
 import com.hznu.campusragbackend.common.exception.DocumentParseException;
 import com.hznu.campusragbackend.model.Document;
@@ -16,6 +18,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
+
+import com.hznu.campusragbackend.common.PageResult;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -82,8 +86,13 @@ public class DocumentService {
         return document;
     }
 
-    public List<Document> listDocuments() {
-        return documentRepository.selectList(null);
+    public PageResult<Document> listDocuments(int page, int pageSize) {
+        IPage<Document> docPage = documentRepository.selectPage(
+                new Page<>(page, pageSize),
+                new LambdaQueryWrapper<Document>()
+                        .orderByDesc(Document::getCreatedAt)
+        );
+        return new PageResult<>(docPage.getRecords(), docPage.getTotal(), (int) docPage.getCurrent(), (int) docPage.getSize());
     }
 
     public Document getDocumentById(Long id) {

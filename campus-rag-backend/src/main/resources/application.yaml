@@ -75,6 +75,12 @@ rag:
     top-k: 5              # 默认返回 Top-K 个结果
     min-score: 0.4        # 最低相似度阈值（0.0-1.0）
 
+# Elasticsearch 配置
+elasticsearch:
+  host: localhost
+  port: 9200
+  index-name: document_chunks
+
 # 服务器配置
 server:
   port: 8080

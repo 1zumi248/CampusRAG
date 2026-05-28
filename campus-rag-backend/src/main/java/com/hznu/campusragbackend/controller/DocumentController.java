@@ -7,7 +7,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.util.List;
+import com.hznu.campusragbackend.common.PageResult;
 
 @RestController
 @RequestMapping("/documents")
@@ -22,11 +22,15 @@ public class DocumentController {
     }
     
     /**
-     * 获取文档列表
+     * 获取文档列表（分页）
+     * @param page 页码，默认1
+     * @param pageSize 每页数量，默认10
      */
     @GetMapping
-    public Result<List<Document>> listDocuments() {
-        return Result.ok(documentService.listDocuments());
+    public Result<PageResult<Document>> listDocuments(
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "10") int pageSize) {
+        return Result.ok(documentService.listDocuments(page, pageSize));
     }
     
     /**

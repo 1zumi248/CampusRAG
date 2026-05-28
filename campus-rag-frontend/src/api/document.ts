@@ -11,6 +11,13 @@ export interface DocumentItem {
   updatedAt: string
 }
 
+export interface DocumentPageResult {
+  list: DocumentItem[]
+  total: number
+  page: number
+  pageSize: number
+}
+
 export function uploadDocument(file: File): Promise<DocumentItem> {
   const formData = new FormData()
   formData.append('file', file)
@@ -19,8 +26,8 @@ export function uploadDocument(file: File): Promise<DocumentItem> {
     .then((res) => res.data)
 }
 
-export function getDocumentList(): Promise<DocumentItem[]> {
-  return api.get('/documents').then((res) => res.data)
+export function getDocumentList(page: number = 1, pageSize: number = 10): Promise<DocumentPageResult> {
+  return api.get('/documents', { params: { page, pageSize } }).then((res) => res.data)
 }
 
 export function getDocumentById(id: number): Promise<DocumentItem> {

@@ -8,11 +8,19 @@ import {
   type DocumentItem,
 } from '@/api/document'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import type { UploadRequestOptions } from 'element-plus'
+import type { UploadFile } from 'element-plus'
 
 const documents = ref<DocumentItem[]>([])
 const uploading = ref(false)
 const loading = ref(false)
+const currentPage = ref(1)
+const pageSize = ref(10)
+const total = ref(0)
+const uploadProgress = ref({ current: 0, total: 0, fileName: '' })
+const pendingFiles = ref<File[]>([])
+
+// Track current upload index separately
+let currentUploadIndex = ref(0)
 
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return bytes + ' B'
@@ -35,7 +43,9 @@ function fileTypeLabel(mime: string): string {
 async function loadDocuments() {
   loading.value = true
   try {
-    documents.value = await getDocumentList()
+    const result = await getDocumentList(currentPage.value, pageSize.value)
+    documents.value = result.list
+    total.value = result.total
   } catch {
     ElMessage.error('获取文档列表失败')
   } finally {
@@ -43,18 +53,53 @@ async function loadDocuments() {
   }
 }
 
-async function handleUpload(options: UploadRequestOptions) {
+function handlePageChange(page: number) {
+  currentPage.value = page
+  loadDocuments()
+}
+
+function handleSizeChange(size: number) {
+  pageSize.value = size
+  currentPage.value = 1
+  loadDocuments()
+}
+
+function onFileSelect(file: UploadFile) {
+  if (file.raw) pendingFiles.value.push(file.raw)
+}
+
+async function startBatchUpload() {
+  const files = pendingFiles.value
+  if (files.length === 0) return
+  pendingFiles.value = []
+
   uploading.value = true
-  try {
-    const doc = await uploadDocument(options.file)
-    ElMessage.success(`「${doc.title}」上传成功`)
-    await loadDocuments()
-  } catch (e: any) {
-    const msg = e?.message || '上传失败'
-    ElMessage.error(msg)
-  } finally {
-    uploading.value = false
+  let successCount = 0
+  let failCount = 0
+  currentUploadIndex.value = 0
+
+  for (const file of files) {
+    currentUploadIndex.value++
+    uploadProgress.value = { current: currentUploadIndex.value, total: files.length, fileName: file.name }
+
+    if (!beforeUpload(file)) {
+      failCount++
+      continue
+    }
+
+    try {
+      await uploadDocument(file)
+      successCount++
+    } catch (e: any) {
+      failCount++
+      ElMessage.error(`${file.name}: ${e?.message || '上传失败'}`)
+    }
   }
+
+  uploading.value = false
+  uploadProgress.value = { current: 0, total: 0, fileName: '' }
+  ElMessage.success(`上传完成：成功 ${successCount} 个${failCount > 0 ? `，失败 ${failCount} 个` : ''}`)
+  await loadDocuments()
 }
 
 function beforeUpload(file: File) {
@@ -80,6 +125,9 @@ async function handleDelete(row: DocumentItem) {
   try {
     await deleteDocument(row.id)
     ElMessage.success('删除成功')
+    if (documents.value.length === 1 && currentPage.value > 1) {
+      currentPage.value--
+    }
     await loadDocuments()
   } catch {
     ElMessage.error('删除失败')
@@ -99,24 +147,36 @@ onMounted(loadDocuments)
     </div>
 
     <el-upload
+      ref="uploadRef"
       class="upload-zone"
       drag
-      :auto-upload="true"
+      multiple
+      :auto-upload="false"
       :show-file-list="false"
-      :http-request="handleUpload"
-      :before-upload="beforeUpload"
+      @change="onFileSelect"
       accept=".pdf,.doc,.docx,.md,.txt,.html"
     >
       <el-icon :size="32" color="#10b981"><UploadFilled /></el-icon>
       <div class="upload-text">
         <p>将文件拖到此处，或<em>点击上传</em></p>
-        <p class="upload-hint">PDF、Word、Markdown、TXT（最大 50MB）</p>
+        <p class="upload-hint">支持多选 · PDF、Word、Markdown、TXT（最大 50MB）</p>
       </div>
     </el-upload>
 
+    <div v-if="pendingFiles.length > 0 && !uploading" class="batch-actions">
+      <span>已选择 {{ pendingFiles.length }} 个文件</span>
+      <el-button color="#10b981" size="small" @click="startBatchUpload">开始上传</el-button>
+      <el-button size="small" text @click="pendingFiles = []">取消</el-button>
+    </div>
+
     <div v-if="uploading" class="uploading-bar">
-      <el-icon class="is-loading"><Refresh /></el-icon>
-      <span>正在解析文档并生成向量...</span>
+      <el-progress
+        :percentage="Math.round((uploadProgress.current / uploadProgress.total) * 100)"
+        :stroke-width="6"
+        :show-text="false"
+        style="max-width:300px"
+      />
+      <span>正在解析（{{ uploadProgress.current }}/{{ uploadProgress.total }}）：{{ uploadProgress.fileName }}</span>
     </div>
 
     <div class="doc-list">
@@ -145,6 +205,19 @@ onMounted(loadDocuments)
         </div>
       </div>
     </div>
+
+    <el-pagination
+      v-if="total > 0"
+      class="doc-pagination"
+      background
+      layout="prev, pager, next, total, sizes"
+      :total="total"
+      :page-size="pageSize"
+      :current-page="currentPage"
+      :page-sizes="[5, 10, 20, 50]"
+      @current-change="handlePageChange"
+      @size-change="handleSizeChange"
+    />
   </div>
 </template>
 
@@ -164,6 +237,18 @@ onMounted(loadDocuments)
 .page-title {
   font-size: 18px;
   font-weight: 700;
+}
+
+.upload-zone :deep(.el-upload-dragger) {
+  background: rgba(16, 185, 129, 0.15) !important;
+  border: 1px dashed rgba(16, 185, 129, 0.5) !important;
+  border-radius: 12px !important;
+  transition: background-color 0.3s, border-color 0.3s;
+}
+
+.upload-zone :deep(.el-upload-dragger:hover) {
+  background: rgba(16, 185, 129, 0.25) !important;
+  border-color: rgba(16, 185, 129, 0.7) !important;
 }
 
 .upload-zone {
@@ -193,6 +278,37 @@ onMounted(loadDocuments)
   justify-content: center;
   gap: 8px;
   font-size: 14px;
+  color: #10b981;
+}
+
+.batch-actions {
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  font-size: 14px;
+  color: #6b7280;
+  background: transparent;
+  border: none;
+  border-radius: 10px;
+  padding: 8px 16px;
+}
+
+.batch-actions .el-button {
+  border-radius: 6px;
+  font-weight: 500;
+}
+
+.batch-actions .el-button--primary {
+  box-shadow: 0 2px 4px rgba(16, 185, 129, 0.3);
+}
+
+.batch-actions .el-button--text {
+  color: #6b7280;
+}
+
+.batch-actions .el-button--text:hover {
   color: #10b981;
 }
 
@@ -292,5 +408,11 @@ onMounted(loadDocuments)
 .doc-delete:hover {
   color: #ef4444;
   background: #fef2f2;
+}
+
+.doc-pagination {
+  margin-top: 20px;
+  justify-content: center;
+  display: flex;
 }
 </style>

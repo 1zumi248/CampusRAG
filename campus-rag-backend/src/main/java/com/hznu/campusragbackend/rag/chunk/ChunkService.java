@@ -4,10 +4,11 @@ import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.hznu.campusragbackend.common.Constants;
+import com.hznu.campusragbackend.model.ChunkDocument;
 import com.hznu.campusragbackend.model.DocumentChunk;
 import com.hznu.campusragbackend.rag.parser.ContentBlock;
+import com.hznu.campusragbackend.repository.ChunkSearchRepository;
 import com.hznu.campusragbackend.repository.DocumentChunkRepository;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
@@ -16,13 +17,20 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class ChunkService {
 
     private final DocumentChunkRepository documentChunkRepository;
+    private final ChunkSearchRepository chunkSearchRepository;
+
+    public ChunkService(DocumentChunkRepository documentChunkRepository,
+                        ChunkSearchRepository chunkSearchRepository) {
+        this.documentChunkRepository = documentChunkRepository;
+        this.chunkSearchRepository = chunkSearchRepository;
+    }
 
     private static final Pattern SENTENCE_SPLIT = Pattern.compile("(?<=[。！？；\\n])\\s*");
 
@@ -60,6 +68,7 @@ public class ChunkService {
                             .eq(DocumentChunk::getDocumentId, documentId)
                             .orderByAsc(DocumentChunk::getChunkIndex)
             );
+            syncToEs(chunks);
         }
 
         log.info("分块完成: documentId={}, 原文{}字符, 切出{}块",
@@ -119,6 +128,7 @@ public class ChunkService {
                             .eq(DocumentChunk::getDocumentId, documentId)
                             .orderByAsc(DocumentChunk::getChunkIndex)
             );
+            syncToEs(allChunks);
         }
 
         long tableCount = allChunks.stream()
@@ -159,6 +169,14 @@ public class ChunkService {
             new LambdaQueryWrapper<DocumentChunk>()
                 .eq(DocumentChunk::getDocumentId, documentId)
         );
+        try {
+            List<ChunkDocument> esDocs = chunkSearchRepository.findByDocumentId(documentId);
+            if (!esDocs.isEmpty()) {
+                chunkSearchRepository.deleteAll(esDocs);
+            }
+        } catch (Exception e) {
+            log.warn("ES清理失败，已忽略: documentId={}", documentId, e);
+        }
         log.info("已删除分块: documentId={}, 共{}条", documentId, deleted);
     }
 
@@ -280,5 +298,33 @@ public class ChunkService {
         meta.put("chunk_type", chunkType);
         meta.put("section_path", sectionPath != null ? sectionPath : "");
         return JSONUtil.toJsonStr(meta);
+    }
+
+    /**
+     * 同步分块到 Elasticsearch（失败不影响主流程）
+     */
+    private void syncToEs(List<DocumentChunk> chunks) {
+        try {
+            List<ChunkDocument> esDocs = chunks.stream()
+                    .map(this::toEsDoc)
+                    .collect(Collectors.toList());
+            chunkSearchRepository.saveAll(esDocs);
+            log.info("ES同步完成: {}条", esDocs.size());
+        } catch (Exception e) {
+            log.warn("ES同步失败，已忽略: {}", e.getMessage());
+        }
+    }
+
+    private ChunkDocument toEsDoc(DocumentChunk chunk) {
+        JSONObject meta = JSONUtil.parseObj(chunk.getMetadata());
+        return ChunkDocument.builder()
+                .id(chunk.getId().toString())
+                .documentId(chunk.getDocumentId())
+                .content(chunk.getContent())
+                .documentTitle(meta.getStr("document_title"))
+                .chunkIndex(chunk.getChunkIndex())
+                .chunkType(meta.getStr("chunk_type"))
+                .sectionPath(meta.getStr("section_path"))
+                .build();
     }
 }
