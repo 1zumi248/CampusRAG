@@ -1,10 +1,9 @@
 package com.hznu.campusragbackend.rag.chunk;
 
-import cn.hutool.json.JSONObject;
-import cn.hutool.json.JSONUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.hznu.campusragbackend.common.Constants;
 import com.hznu.campusragbackend.model.ChunkDocument;
+import com.hznu.campusragbackend.model.ChunkMetadata;
 import com.hznu.campusragbackend.model.DocumentChunk;
 import com.hznu.campusragbackend.rag.parser.ContentBlock;
 import com.hznu.campusragbackend.repository.ChunkSearchRepository;
@@ -13,9 +12,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -56,7 +53,7 @@ public class ChunkService {
                     .documentId(documentId)
                     .chunkIndex(i)
                     .content(rawChunks.get(i))
-                    .metadata(buildMetadata(documentId, documentTitle, i))
+                    .metadata(new ChunkMetadata(documentId, documentTitle, i, "text", "").toJson())
                     .build());
         }
 
@@ -109,7 +106,7 @@ public class ChunkService {
                         .documentId(documentId)
                         .chunkIndex(chunkIndex)
                         .content(prefixedContent)
-                        .metadata(buildMetadata(documentId, documentTitle, chunkIndex, "table", headingPath))
+                        .metadata(new ChunkMetadata(documentId, documentTitle, chunkIndex, "table", headingPath).toJson())
                         .build());
                 chunkIndex++;
             } else {
@@ -132,10 +129,8 @@ public class ChunkService {
         }
 
         long tableCount = allChunks.stream()
-                .filter(c -> {
-                    JSONObject meta = JSONUtil.parseObj(c.getMetadata());
-                    return "table".equals(meta.getStr("chunk_type"));
-                }).count();
+                .filter(c -> "table".equals(ChunkMetadata.fromJson(c.getMetadata()).chunkType()))
+                .count();
         log.info("结构化分块完成: documentId={}, 块数={}, 其中表格块={}", documentId, allChunks.size(), tableCount);
         return allChunks;
     }
@@ -155,7 +150,7 @@ public class ChunkService {
                     .documentId(documentId)
                     .chunkIndex(startIndex + i)
                     .content(rawChunks.get(i))
-                    .metadata(buildMetadata(documentId, documentTitle, startIndex + i, "text", headingPath))
+                    .metadata(new ChunkMetadata(documentId, documentTitle, startIndex + i, "text", headingPath).toJson())
                     .build());
         }
         return result;
@@ -274,33 +269,6 @@ public class ChunkService {
 
 
     /**
-     * 构建分块的元数据 JSON（兼容旧格式）
-     */
-    private String buildMetadata(Long documentId, String title, int index) {
-        Map<String, Object> meta = new HashMap<>();
-        meta.put("document_id", documentId);
-        meta.put("document_title", title);
-        meta.put("chunk_index", index);
-        meta.put("chunk_type", "text");
-        meta.put("section_path", "");
-        return JSONUtil.toJsonStr(meta);
-    }
-
-    /**
-     * 构建分块的元数据 JSON（带 chunk_type 和 section_path）
-     */
-    private String buildMetadata(Long documentId, String title, int index,
-                                  String chunkType, String sectionPath) {
-        Map<String, Object> meta = new HashMap<>();
-        meta.put("document_id", documentId);
-        meta.put("document_title", title);
-        meta.put("chunk_index", index);
-        meta.put("chunk_type", chunkType);
-        meta.put("section_path", sectionPath != null ? sectionPath : "");
-        return JSONUtil.toJsonStr(meta);
-    }
-
-    /**
      * 同步分块到 Elasticsearch（失败不影响主流程）
      */
     private void syncToEs(List<DocumentChunk> chunks) {
@@ -316,15 +284,15 @@ public class ChunkService {
     }
 
     private ChunkDocument toEsDoc(DocumentChunk chunk) {
-        JSONObject meta = JSONUtil.parseObj(chunk.getMetadata());
+        ChunkMetadata meta = ChunkMetadata.fromJson(chunk.getMetadata());
         return ChunkDocument.builder()
                 .id(chunk.getId().toString())
                 .documentId(chunk.getDocumentId())
                 .content(chunk.getContent())
-                .documentTitle(meta.getStr("document_title"))
+                .documentTitle(meta.documentTitle())
                 .chunkIndex(chunk.getChunkIndex())
-                .chunkType(meta.getStr("chunk_type"))
-                .sectionPath(meta.getStr("section_path"))
+                .chunkType(meta.chunkType())
+                .sectionPath(meta.sectionPath())
                 .build();
     }
 }
