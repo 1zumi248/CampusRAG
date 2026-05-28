@@ -1,6 +1,8 @@
 spring:
   application:
     name: campus-rag-backend
+  profiles:
+    active: dev
 
   # 数据源配置
   datasource:
@@ -50,10 +52,10 @@ langchain4j:
     # 阿里云兼容 OpenAI 的 base URL
     base-url: https://dashscope.aliyuncs.com/compatible-mode/v1
     chat-model:
-      # 聊天模型：通义千问
-      model-name: qwen3.6-flash
+      # 聊天模型：通义千问（qwen-plus 比 qwen3.6-plus 快 2-3 倍）
+      model-name: qwen-plus
       temperature: 0.7
-      timeout: PT30S
+      timeout: PT60S
     embedding-model:
       # 向量模型：通义千问文本嵌入
       model-name: text-embedding-v4
@@ -72,8 +74,10 @@ pgvector:
 # RAG 检索配置
 rag:
   retrieval:
-    top-k: 5              # 默认返回 Top-K 个结果
+    top-k: 3              # 默认返回 Top-K 个结果
     min-score: 0.4        # 最低相似度阈值（0.0-1.0）
+  eval:
+    dir: ./campus-rag-backend/eval
 
 # Elasticsearch 配置
 elasticsearch:

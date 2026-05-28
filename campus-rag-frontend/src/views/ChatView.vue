@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, nextTick, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { marked } from 'marked'
 import {
@@ -34,8 +35,19 @@ const sidebarCollapsed = ref(false)
 const sidebarWidth = ref(260)
 
 const messageListRef = ref<InstanceType<typeof MessageList>>()
+const router = useRouter()
 
-onMounted(() => loadConversations())
+onMounted(async () => {
+  await loadConversations()
+  const lastConvId = sessionStorage.getItem('lastConvId')
+  if (lastConvId) {
+    const conv = conversations.value.find(c => c.id === Number(lastConvId))
+    if (conv) {
+      sessionStorage.removeItem('lastConvId')
+      await selectConversation(conv)
+    }
+  }
+})
 
 function scrollToBottom() {
   nextTick(() => {
@@ -176,9 +188,12 @@ async function handleSend() {
     }
     console.log('[Stream] done, answer length:', msg.answer.length)
     msg.streaming = false
-    await nextTick()
+    // 更新渲染后的 HTML
     msg.renderedHtml = renderMarkdown(msg.answer)
-    console.log('[Stream] renderedHtml set, length:', msg.renderedHtml.length)
+    sessionStorage.setItem('lastConvId', String(currentConvId.value))
+    // 使用 forceUpdate 强制重新渲染，而不是销毁组件
+    await nextTick()
+    scrollToBottom()
   } catch {
     if (!msg.answer) {
       msg.error = true

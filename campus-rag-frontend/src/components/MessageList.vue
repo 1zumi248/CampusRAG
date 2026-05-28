@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { ChatResponse } from '@/api/chat'
+import { marked } from 'marked'
 
 interface Message {
   id: number
@@ -11,14 +12,15 @@ interface Message {
   renderedHtml: string
 }
 
-import { ref } from 'vue'
+import { ref, nextTick } from 'vue'
 
-defineProps<{
+const props = defineProps<{
   messages: Message[]
   loading: boolean
 }>()
 
 const bodyRef = ref<HTMLElement>()
+const forceUpdateKey = ref(0)
 
 function scrollToBottom() {
   if (bodyRef.value) {
@@ -26,7 +28,27 @@ function scrollToBottom() {
   }
 }
 
-defineExpose({ scrollToBottom })
+function refresh() {
+  forceUpdateKey.value++
+  nextTick(() => scrollToBottom())
+}
+
+function getHtml(msg: Message): string {
+  if (!msg.answer) return ''
+  // 优先使用预渲染的 HTML，如果没有则实时渲染
+  if (msg.renderedHtml) return msg.renderedHtml
+  try {
+    return marked.parse(msg.answer, {
+      async: false,
+      gfm: true,
+      breaks: true,
+    }) as string
+  } catch {
+    return msg.answer.replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  }
+}
+
+defineExpose({ scrollToBottom, refresh })
 </script>
 
 <template>
@@ -54,8 +76,9 @@ defineExpose({ scrollToBottom })
         <div class="msg-avatar a-avatar">A</div>
         <div class="msg-content">
           <div class="answer-text" :class="{ 'error-text': msg.error }">
-            <pre v-if="msg.streaming || msg.error">{{ msg.answer }}<span v-if="msg.streaming" class="stream-cursor">|</span></pre>
-            <div v-else class="markdown-body" v-html="msg.renderedHtml"></div>
+            <div v-if="msg.error" class="error-content"><pre>{{ msg.answer }}</pre></div>
+            <div v-else class="markdown-body" v-html="getHtml(msg)"></div>
+            <span v-if="msg.streaming" class="stream-cursor">|</span>
           </div>
           <div v-if="!msg.streaming && !msg.error && msg.sources.length > 0" class="sources-box">
             <div class="sources-title">引用来源</div>
@@ -112,6 +135,8 @@ defineExpose({ scrollToBottom })
   font-family: inherit; font-size: 14px; line-height: 1.7; margin: 0;
 }
 
+.error-content pre { color: #ef4444; white-space: pre-wrap; word-break: break-word; font-family: inherit; font-size: 14px; line-height: 1.7; margin: 0; }
+
 .markdown-body { font-size: 14px; line-height: 1.7; color: var(--text); }
 
 .markdown-body :deep(h1), .markdown-body :deep(h2),
@@ -126,9 +151,20 @@ defineExpose({ scrollToBottom })
 .markdown-body :deep(li) { margin-bottom: 4px; }
 
 .markdown-body :deep(blockquote) {
-  margin: 8px 0; padding: 6px 14px;
+  margin: 8px 0;
+  padding: 6px 14px;
   border-left: 3px solid var(--green);
-  background: var(--green-bg); color: var(--text-secondary);
+  background: var(--green-bg);
+  color: var(--text-secondary);
+}
+
+/* 移除嵌套 blockquote 的左边框和背景，避免重复显示 */
+.markdown-body :deep(blockquote blockquote),
+.markdown-body :deep(blockquote > blockquote) {
+  border-left: none !important;
+  background: transparent !important;
+  margin: 0 !important;
+  padding: 0 !important;
 }
 
 .markdown-body :deep(code) {
@@ -155,8 +191,6 @@ defineExpose({ scrollToBottom })
 .markdown-body :deep(a:hover) { text-decoration: underline; }
 .markdown-body :deep(hr) { margin: 14px 0; border: none; border-top: 1px solid var(--border); }
 .markdown-body :deep(strong) { font-weight: 600; color: var(--text); }
-
-.error-text pre { color: #ef4444; }
 
 .sources-box {
   margin-top: 12px; padding: 12px 14px;
