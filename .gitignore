@@ -37,4 +37,10 @@ SKILLS-GUIDE.md
 
 # IDEA 特定配置（排除已被跟踪的文件）
 .idea/*.xml
+.idea/*.iml
 !.idea/workspace.xml
+!.idea/misc.xml
+!.idea/encodings.xml
+!.idea/compiler.xml
+!.idea/vcs.xml
+!.idea/modules.xml
