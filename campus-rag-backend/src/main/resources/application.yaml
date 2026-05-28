@@ -91,6 +91,10 @@ server:
   servlet:
     context-path: /api
 
+# 高德地图API配置
+amap:
+  api-key: ${AMAP_API_KEY:}
+
 # 日志配置
 logging:
   level:

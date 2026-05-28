@@ -22,6 +22,9 @@ dist/
 Thumbs.db
 .DS_Store
 
-#本地文件
-exp
-/exp/
+# 本地/实验文件
+exp/
+campus-rag-backend/eval/
+campus-rag-backend/src/main/java/com/hznu/campusragbackend/controller/EvalController.java
+campus-rag-backend/src/main/java/com/hznu/campusragbackend/service/EvaluationService.java
+campus-rag-backend/src/main/java/com/hznu/campusragbackend/rag/assistant/QuestionGenerator.java

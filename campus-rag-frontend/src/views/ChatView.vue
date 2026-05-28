@@ -23,6 +23,7 @@ interface Message {
   streaming: boolean
   error: boolean
   renderedHtml: string
+  toolStatus: string
 }
 
 const conversations = ref<ConversationItem[]>([])
@@ -77,6 +78,7 @@ async function selectConversation(conv: ConversationItem) {
         streaming: false,
         error: false,
         renderedHtml: renderMarkdown(answer),
+        toolStatus: '',
       }
     })
   } catch {
@@ -133,6 +135,7 @@ async function handleSend() {
     streaming: true,
     error: false,
     renderedHtml: '',
+    toolStatus: '',
   })
   const msg = messages.value[messages.value.length - 1]!
   scrollToBottom()
@@ -181,6 +184,11 @@ async function handleSend() {
             scrollToBottom()
           } else if (eventType === 'sources') {
             try { msg.sources = JSON.parse(data) } catch { /* ignore */ }
+          } else if (eventType === 'tool') {
+            try {
+              const toolInfo = JSON.parse(data)
+              msg.toolStatus = toolInfo.displayName || toolInfo.name
+            } catch { /* ignore */ }
           }
           eventType = ''
         }
@@ -188,6 +196,7 @@ async function handleSend() {
     }
     console.log('[Stream] done, answer length:', msg.answer.length)
     msg.streaming = false
+    msg.toolStatus = ''
     // 更新渲染后的 HTML
     msg.renderedHtml = renderMarkdown(msg.answer)
     sessionStorage.setItem('lastConvId', String(currentConvId.value))

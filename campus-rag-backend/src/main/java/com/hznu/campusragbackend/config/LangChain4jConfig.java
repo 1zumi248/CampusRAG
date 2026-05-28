@@ -1,10 +1,18 @@
 package com.hznu.campusragbackend.config;
 
+import com.hznu.campusragbackend.agent.tools.ClassroomTool;
+import com.hznu.campusragbackend.agent.tools.CurrentTimeTool;
+import com.hznu.campusragbackend.agent.tools.LibrarySeatTool;
+import com.hznu.campusragbackend.agent.tools.RagRetrievalTool;
+import com.hznu.campusragbackend.agent.tools.ScheduleTool;
+import com.hznu.campusragbackend.agent.tools.WeatherTool;
+import com.hznu.campusragbackend.rag.assistant.RagAssistant;
 import dev.langchain4j.memory.chat.ChatMemoryProvider;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import dev.langchain4j.model.openai.OpenAiChatModel;
 import dev.langchain4j.model.openai.OpenAiEmbeddingModel;
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
+import dev.langchain4j.service.AiServices;
 import dev.langchain4j.store.embedding.pgvector.PgVectorEmbeddingStore;
 import dev.langchain4j.store.memory.chat.ChatMemoryStore;
 import org.springframework.beans.factory.annotation.Value;
@@ -103,8 +111,26 @@ public class LangChain4jConfig {
     public ChatMemoryProvider chatMemoryProvider(ChatMemoryStore store) {
         return memoryId -> MessageWindowChatMemory.builder()
                 .id(memoryId)
-                .maxMessages(10)  // 保留最近 5 轮对话
+                .maxMessages(6)
                 .chatMemoryStore(store)
+                .build();
+    }
+
+    @Bean
+    public RagAssistant ragAssistant(OpenAiChatModel chatModel,
+                                     OpenAiStreamingChatModel streamingChatModel,
+                                     ChatMemoryProvider chatMemoryProvider,
+                                     RagRetrievalTool retrievalTool,
+                                     WeatherTool weatherTool,
+                                     ScheduleTool scheduleTool,
+                                     LibrarySeatTool librarySeatTool,
+                                     ClassroomTool classroomTool,
+                                     CurrentTimeTool currentTimeTool) {
+        return AiServices.builder(RagAssistant.class)
+                .chatModel(chatModel)
+                .streamingChatModel(streamingChatModel)
+                .chatMemoryProvider(chatMemoryProvider)
+                .tools(retrievalTool, weatherTool, scheduleTool, librarySeatTool, classroomTool, currentTimeTool)
                 .build();
     }
 }

@@ -10,6 +10,7 @@ interface Message {
   streaming: boolean
   error: boolean
   renderedHtml: string
+  toolStatus: string
 }
 
 import { ref, nextTick } from 'vue'
@@ -78,7 +79,11 @@ defineExpose({ scrollToBottom, refresh })
           <div class="answer-text" :class="{ 'error-text': msg.error }">
             <div v-if="msg.error" class="error-content"><pre>{{ msg.answer }}</pre></div>
             <div v-else class="markdown-body" v-html="getHtml(msg)"></div>
-            <span v-if="msg.streaming" class="stream-cursor">|</span>
+            <div v-if="msg.toolStatus && msg.streaming" class="tool-indicator">
+              <span class="tool-spinner"></span>
+              <span>正在{{ msg.toolStatus }}...</span>
+            </div>
+            <span v-if="msg.streaming && !msg.toolStatus" class="stream-cursor">|</span>
           </div>
           <div v-if="!msg.streaming && !msg.error && msg.sources.length > 0" class="sources-box">
             <div class="sources-title">引用来源</div>
@@ -208,6 +213,24 @@ defineExpose({ scrollToBottom, refresh })
 .source-score { color: var(--text-secondary); font-size: 11px; background: #f3f4f6; padding: 1px 6px; border-radius: 4px; }
 
 .stream-cursor { color: var(--green); font-weight: 400; animation: blink 0.8s infinite; }
+
+.tool-indicator {
+  display: inline-flex; align-items: center; gap: 6px;
+  margin-top: 8px; padding: 6px 12px;
+  background: #f0fdf4; border: 1px solid var(--green); border-radius: 6px;
+  font-size: 13px; color: var(--green);
+}
+
+.tool-spinner {
+  width: 14px; height: 14px;
+  border: 2px solid #d1fae5;
+  border-top-color: var(--green);
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+  display: inline-block;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
 
 @keyframes blink {
   0%, 100% { opacity: 1; }
