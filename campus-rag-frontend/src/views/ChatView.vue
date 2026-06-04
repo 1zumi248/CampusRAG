@@ -187,7 +187,16 @@ async function handleSend() {
           } else if (eventType === 'tool') {
             try {
               const toolInfo = JSON.parse(data)
-              msg.toolStatus = toolInfo.displayName || toolInfo.name
+              // 根据工具类型显示友好的提示
+              const toolMessages: Record<string, string> = {
+                searchKnowledgeBase: '检索知识库',
+                getWeather: '查询天气',
+                getSchedule: '查询课表',
+                getLibrarySeats: '查询图书馆座位',
+                getEmptyClassrooms: '查询空闲教室',
+                getCurrentTime: '获取当前时间'
+              }
+              msg.toolStatus = toolMessages[toolInfo.name] || toolInfo.displayName || '处理中'
             } catch { /* ignore */ }
           }
           eventType = ''

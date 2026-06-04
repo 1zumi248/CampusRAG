@@ -60,7 +60,6 @@ public class LangChain4jConfig {
     @Value("${langchain4j.open-ai.embedding-model.model-name}")
     private String embeddingModelName;
 
-    /** 用具体返回类型声明，auto-config 的 @ConditionalOnMissingBean 会检测到并跳过 */
     @Bean
     public OpenAiChatModel chatModel() {
         return OpenAiChatModel.builder()

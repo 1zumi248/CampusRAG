@@ -30,10 +30,9 @@ campus-rag-backend/src/main/java/com/hznu/campusragbackend/service/EvaluationSer
 campus-rag-backend/src/main/java/com/hznu/campusragbackend/rag/assistant/QuestionGenerator.java
 
 # 项目根目录特定文件
-.architecture-review.html
 .handoff-campusrag-*.md
-.report-tech-evolution.html
 SKILLS-GUIDE.md
+ux.html
 
 # IDEA 特定配置（排除已被跟踪的文件）
 .idea/*.xml

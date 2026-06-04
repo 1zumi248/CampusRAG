@@ -1,5 +1,6 @@
 package com.hznu.campusragbackend.agent.tools;
 
+import com.hznu.campusragbackend.config.PromptTemplates;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.P;
 import lombok.extern.slf4j.Slf4j;
@@ -9,12 +10,12 @@ import org.springframework.stereotype.Component;
 @Component
 public class ClassroomTool {
 
-    @Tool("查询空闲教室信息，返回当前时间段可用的教室列表。当用户询问空闲教室、自习教室、教室占用情况时调用此工具")
+    @Tool(PromptTemplates.TOOL_CLASSROOM)
     public String getEmptyClassrooms(@P("教学楼名称或区域，例如教三楼、信息楼、全部") String building) {
         log.info("空闲教室查询 building={}", building);
         String bld = building != null && !building.isEmpty() ? building : "全部教学楼";
         return String.format("""
-                %s 当前空闲教室（Mock数据）：
+                查询成功|%s 当前空闲教室：
                 教一楼：101(60座)、203(40座)、305(30座)
                 教二楼：201(80座)、402(50座)
                 教三楼：102(60座)、301(40座)、502(30座)

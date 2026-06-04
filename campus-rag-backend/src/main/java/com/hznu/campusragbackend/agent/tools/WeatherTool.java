@@ -1,5 +1,6 @@
 package com.hznu.campusragbackend.agent.tools;
 
+import com.hznu.campusragbackend.config.PromptTemplates;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.P;
 import lombok.extern.slf4j.Slf4j;
@@ -25,7 +26,7 @@ public class WeatherTool {
         this.apiKey = apiKey;
     }
 
-    @Tool("查询指定城市的实时天气信息，返回温度、天气状况、湿度、风力等数据。当用户询问天气时调用此工具")
+    @Tool(PromptTemplates.TOOL_WEATHER)
     public String getWeather(@P("城市名称，例如杭州、北京、上海") String city) {
         if (apiKey == null || apiKey.isBlank()) {
             log.warn("高德API Key未配置");
