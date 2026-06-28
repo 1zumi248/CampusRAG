@@ -77,7 +77,7 @@ rag:
     top-k: 3              # 默认返回 Top-K 个结果
     min-score: 0.4        # 最低相似度阈值（0.0-1.0）
   eval:
-    dir: ./campus-rag-backend/eval
+    dir: ./experiments/eval
 
 # Elasticsearch 配置
 elasticsearch:

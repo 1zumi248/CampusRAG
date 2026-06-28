@@ -24,15 +24,17 @@ Thumbs.db
 
 # 本地/实验文件
 exp/
-campus-rag-backend/eval/
-campus-rag-backend/src/main/java/com/hznu/campusragbackend/controller/EvalController.java
-campus-rag-backend/src/main/java/com/hznu/campusragbackend/service/EvaluationService.java
-campus-rag-backend/src/main/java/com/hznu/campusragbackend/rag/assistant/QuestionGenerator.java
+experiments/
+docs/
 
 # 项目根目录特定文件
 .handoff-campusrag-*.md
+.grill-progress.md
 SKILLS-GUIDE.md
 ux.html
+
+# Claude Code 本地工作区
+.claude/worktrees/
 
 # IDEA 特定配置（排除已被跟踪的文件）
 .idea/*.xml
