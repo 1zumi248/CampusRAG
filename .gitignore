@@ -27,6 +27,14 @@ exp/
 experiments/
 docs/
 
+# 本地评审、待改进项与报告产物
+**/TODO_IMPROVEMENTS.md
+**/*_IMPROVEMENTS.md
+**/*-report.md
+**/*-report.html
+**/*_REPORT.md
+**/*_REPORT.html
+
 # 项目根目录特定文件
 .handoff-campusrag-*.md
 .grill-progress.md
