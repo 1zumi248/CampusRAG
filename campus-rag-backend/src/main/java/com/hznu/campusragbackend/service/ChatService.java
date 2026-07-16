@@ -11,10 +11,14 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.ResourceAccessException;
 import reactor.core.publisher.Flux;
 import reactor.core.scheduler.Schedulers;
 
+import javax.net.ssl.SSLHandshakeException;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Consumer;
 
 @Slf4j
 @Service
@@ -81,6 +85,17 @@ public class ChatService {
         log.info("流式未命中缓存: {}", question);
         long sseStartTime = System.currentTimeMillis();
         return Flux.<ServerSentEvent<String>>create(sink -> {
+            AtomicBoolean terminal = new AtomicBoolean(false);
+            Consumer<Throwable> fail = error -> {
+                log.error("流式问答失败", error);
+                if (terminal.compareAndSet(false, true)) {
+                    sink.next(sse("error", JSONUtil.toJsonStr(Map.of(
+                            "message", userFacingError(error)
+                    ))));
+                    sink.complete();
+                }
+            };
+
             try {
                 sink.next(sse("conversation", effectiveConvId.toString()));
 
@@ -90,7 +105,7 @@ public class ChatService {
                 TokenStream tokenStream = ragAssistant.stream(question, effectiveConvId);
                 tokenStream
                         .onPartialResponse(token -> {
-                            if (token != null && !token.isEmpty()) {
+                            if (!terminal.get() && token != null && !token.isEmpty()) {
                                 int n = tokenCount.incrementAndGet();
                                 log.info("[流式] token#{} +{}ms: {}", n, System.currentTimeMillis() - sseStartTime, token.replace("\n", "\\n"));
                                 fullAnswer.append(token);
@@ -98,46 +113,65 @@ public class ChatService {
                             }
                         })
                         .onToolExecuted(te -> {
-                            log.info("[流式] 工具调用 tool={} args={}", te.request().name(), te.request().arguments());
-                            String displayName = TOOL_DISPLAY_NAMES.getOrDefault(te.request().name(), te.request().name());
-                            String args = te.request().arguments() != null ? te.request().arguments() : "{}";
-                            String result = te.result() != null ? te.result() : "";
-                            sink.next(sse("tool", JSONUtil.toJsonStr(Map.of(
-                                    "name", te.request().name(),
-                                    "displayName", displayName,
-                                    "status", "done",
-                                    "arguments", args,
-                                    "result", result
-                            ))));
+                            if (terminal.get()) return;
+                            try {
+                                log.info("[流式] 工具调用 tool={} args={}", te.request().name(), te.request().arguments());
+                                String displayName = TOOL_DISPLAY_NAMES.getOrDefault(te.request().name(), te.request().name());
+                                String args = te.request().arguments() != null ? te.request().arguments() : "{}";
+                                String result = te.result() != null ? te.result() : "";
+                                sink.next(sse("tool", JSONUtil.toJsonStr(Map.of(
+                                        "name", te.request().name(),
+                                        "displayName", displayName,
+                                        "status", "done",
+                                        "arguments", args,
+                                        "result", result
+                                ))));
+                            } catch (Exception e) {
+                                fail.accept(e);
+                            }
                         })
                         .onCompleteResponse(response -> {
-                            log.info("[流式] 完成 +{}ms, 共{}个token", System.currentTimeMillis() - sseStartTime, tokenCount.get());
-                            String finalAnswer = fullAnswer.toString();
-                            List<RetrievalResult> results = ragRetrievalTool.getAndClearResults();
-                            if (results == null) results = List.of();
-                            List<SourceReference> sourcesForPersist = ragRetrievalTool.buildSources(results, false);
-                            List<SourceReference> sourcesForSse = ragRetrievalTool.buildSources(results, true);
+                            if (terminal.get()) return;
+                            try {
+                                log.info("[流式] 完成 +{}ms, 共{}个token", System.currentTimeMillis() - sseStartTime, tokenCount.get());
+                                String finalAnswer = fullAnswer.toString();
+                                List<RetrievalResult> results = ragRetrievalTool.getAndClearResults();
+                                if (results == null) results = List.of();
+                                List<SourceReference> sourcesForPersist = ragRetrievalTool.buildSources(results, false);
+                                List<SourceReference> sourcesForSse = ragRetrievalTool.buildSources(results, true);
 
-                            conversationService.saveMessage(effectiveConvId, question, finalAnswer, sourcesForPersist);
-                            queryCache.put(question, ChatResponse.builder()
-                                    .conversationId(effectiveConvId)
-                                    .answer(finalAnswer)
-                                    .sources(sourcesForPersist)
-                                    .build());
-                            sink.next(sse("sources", JSONUtil.toJsonStr(sourcesForSse)));
-                            sink.complete();
+                                conversationService.saveMessage(effectiveConvId, question, finalAnswer, sourcesForPersist);
+                                queryCache.put(question, ChatResponse.builder()
+                                        .conversationId(effectiveConvId)
+                                        .answer(finalAnswer)
+                                        .sources(sourcesForPersist)
+                                        .build());
+                                if (terminal.compareAndSet(false, true)) {
+                                    sink.next(sse("sources", JSONUtil.toJsonStr(sourcesForSse)));
+                                    sink.complete();
+                                }
+                            } catch (Exception e) {
+                                fail.accept(e);
+                            }
                         })
-                        .onError(error -> {
-                            log.error("TokenStream 错误", error);
-                            sink.error(error);
-                        })
+                        .onError(fail)
                         .start();
 
             } catch (Exception e) {
-                log.error("流式问答异常", e);
-                sink.error(e);
+                fail.accept(e);
             }
         }).subscribeOn(Schedulers.boundedElastic());
+    }
+
+    private static String userFacingError(Throwable error) {
+        Throwable cause = error;
+        while (cause != null) {
+            if (cause instanceof ResourceAccessException || cause instanceof SSLHandshakeException) {
+                return "AI 服务连接失败，请检查网络或代理设置后重试";
+            }
+            cause = cause.getCause();
+        }
+        return "回答生成失败，请稍后重试";
     }
 
     private Long resolveConversationId(Long conversationId) {

@@ -217,6 +217,19 @@ async function handleSend() {
                 result: toolInfo.result,
               })
             } catch { /* ignore */ }
+          } else if (eventType === 'error') {
+            let errorMessage = '回答生成失败，请稍后重试'
+            try {
+              const errorInfo = JSON.parse(data)
+              errorMessage = errorInfo.message || errorMessage
+            } catch {
+              if (data) errorMessage = data
+            }
+            msg.error = true
+            msg.answer = msg.answer
+              ? `${msg.answer}\n\n${errorMessage}`
+              : errorMessage
+            msg.streaming = false
           }
           eventType = ''
         }
@@ -241,7 +254,9 @@ async function handleSend() {
     } else {
       if (!msg.answer) {
         msg.error = true
-        msg.answer = '请求失败，请检查后端服务是否启动'
+        msg.answer = e?.message && e.message !== 'Request failed'
+          ? `请求失败：${e.message}`
+          : '请求失败，请检查后端服务是否启动或网络连接是否正常'
       }
       msg.renderedHtml = msg.answer
       msg.streaming = false

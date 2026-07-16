@@ -9,6 +9,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.client.ResourceAccessException;
 
 import java.util.stream.Collectors;
 
@@ -45,6 +46,13 @@ public class GlobalExceptionHandler {
                 .collect(Collectors.joining("; "));
         log.warn("请求参数校验失败: {}", fields);
         return Result.error(400, "参数校验失败: " + fields);
+    }
+
+    @ExceptionHandler(ResourceAccessException.class)
+    @ResponseStatus(HttpStatus.SERVICE_UNAVAILABLE)
+    public Result<Void> handleResourceAccess(ResourceAccessException e) {
+        log.error("外部 AI 服务连接失败", e);
+        return Result.error(503, "AI 服务连接失败，请检查网络或代理设置后重试");
     }
 
     @ExceptionHandler(RuntimeException.class)
