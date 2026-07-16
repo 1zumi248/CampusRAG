@@ -32,22 +32,42 @@ const activeIndex = computed(() => route.path)
       </div>
     </el-aside>
     <el-main class="app-main">
-      <router-view />
+      <router-view v-slot="{ Component }">
+        <Transition name="page" mode="out-in">
+          <component :is="Component" />
+        </Transition>
+      </router-view>
     </el-main>
   </el-container>
 </template>
 
 <style>
 :root {
-  --green: #10b981;
-  --green-light: #d1fae5;
-  --green-bg: #ecfdf5;
-  --green-hover: #059669;
-  --border: #e5e7eb;
-  --text: #1f2937;
-  --text-secondary: #6b7280;
-  --bg: #f9fafb;
+  /* 主色:墨绿 (teal-700),沉稳的校园/知识感 */
+  --green: #0f766e;
+  --green-light: #99f6e4;
+  --green-bg: #f0fdfa;
+  --green-hover: #115e59;
+
+  /* AI 点缀:赤陶 (orange-800),温暖人文,与墨绿互补对比 */
+  --accent: #c2410c;
+  --accent-bg: #fff7ed;
+  --accent-light: #fed7aa;
+
+  /* 中性:stone 暖灰,纸质感,避免冷蓝灰 */
+  --border: #e7e5e4;
+  --text: #1c1917;
+  --text-secondary: #57534e;
+  --bg: #fafaf9;
   --white: #ffffff;
+
+  /* 覆盖 Element Plus 主色为项目墨绿,避免分页器/按钮等默认蓝色割裂 */
+  --el-color-primary: #0f766e;
+  --el-color-primary-light-3: #4ba89e;
+  --el-color-primary-light-5: #7ec5bd;
+  --el-color-primary-light-7: #b1ddd8;
+  --el-color-primary-light-9: #e4f3f1;
+  --el-color-primary-dark-2: #0c5f58;
 }
 
 * {
@@ -125,5 +145,17 @@ html, body, #app {
   padding: 24px;
   height: 100%;
   overflow: auto;
+}
+
+/* 页面切换过渡 */
+.page-enter-active, .page-leave-active {
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+.page-enter-from {
+  opacity: 0;
+  transform: translateY(6px);
+}
+.page-leave-to {
+  opacity: 0;
 }
 </style>

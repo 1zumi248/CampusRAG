@@ -156,7 +156,7 @@ onMounted(loadDocuments)
       @change="onFileSelect"
       accept=".pdf,.doc,.docx,.md,.txt,.html"
     >
-      <el-icon :size="32" color="#10b981"><UploadFilled /></el-icon>
+      <el-icon :size="32" color="#0f766e"><UploadFilled /></el-icon>
       <div class="upload-text">
         <p>将文件拖到此处，或<em>点击上传</em></p>
         <p class="upload-hint">支持多选 · PDF、Word、Markdown、TXT（最大 50MB）</p>
@@ -165,7 +165,7 @@ onMounted(loadDocuments)
 
     <div v-if="pendingFiles.length > 0 && !uploading" class="batch-actions">
       <span>已选择 {{ pendingFiles.length }} 个文件</span>
-      <el-button color="#10b981" size="small" @click="startBatchUpload">开始上传</el-button>
+      <el-button color="#0f766e" size="small" @click="startBatchUpload">开始上传</el-button>
       <el-button size="small" text @click="pendingFiles = []">取消</el-button>
     </div>
 
@@ -240,15 +240,15 @@ onMounted(loadDocuments)
 }
 
 .upload-zone :deep(.el-upload-dragger) {
-  background: rgba(16, 185, 129, 0.15) !important;
-  border: 1px dashed rgba(16, 185, 129, 0.5) !important;
+  background: rgba(15, 118, 110, 0.15) !important;
+  border: 1px dashed rgba(15, 118, 110, 0.5) !important;
   border-radius: 12px !important;
   transition: background-color 0.3s, border-color 0.3s;
 }
 
 .upload-zone :deep(.el-upload-dragger:hover) {
-  background: rgba(16, 185, 129, 0.25) !important;
-  border-color: rgba(16, 185, 129, 0.7) !important;
+  background: rgba(15, 118, 110, 0.25) !important;
+  border-color: rgba(15, 118, 110, 0.7) !important;
 }
 
 .upload-zone {
@@ -267,7 +267,7 @@ onMounted(loadDocuments)
 }
 
 .upload-text em {
-  color: #10b981;
+  color: #0f766e;
   font-style: normal;
 }
 
@@ -278,7 +278,7 @@ onMounted(loadDocuments)
   justify-content: center;
   gap: 8px;
   font-size: 14px;
-  color: #10b981;
+  color: #0f766e;
 }
 
 .batch-actions {
@@ -301,7 +301,7 @@ onMounted(loadDocuments)
 }
 
 .batch-actions .el-button--primary {
-  box-shadow: 0 2px 4px rgba(16, 185, 129, 0.3);
+  box-shadow: 0 2px 4px rgba(15, 118, 110, 0.3);
 }
 
 .batch-actions .el-button--text {
@@ -309,7 +309,7 @@ onMounted(loadDocuments)
 }
 
 .batch-actions .el-button--text:hover {
-  color: #10b981;
+  color: #0f766e;
 }
 
 .doc-list {
@@ -353,7 +353,7 @@ onMounted(loadDocuments)
   height: 40px;
   border-radius: 8px;
   background: #ecfdf5;
-  color: #10b981;
+  color: #0f766e;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -384,7 +384,7 @@ onMounted(loadDocuments)
 }
 
 .doc-type {
-  color: #10b981;
+  color: #0f766e;
   font-weight: 600;
 }
 

@@ -14,6 +14,15 @@ import {
 import ChatSidebar from '@/components/ChatSidebar.vue'
 import MessageList from '@/components/MessageList.vue'
 import ChatInput from '@/components/ChatInput.vue'
+import DocumentPreviewDrawer from '@/components/DocumentPreviewDrawer.vue'
+
+interface ToolCall {
+  name: string
+  displayName: string
+  status: 'running' | 'done'
+  arguments?: string
+  result?: string
+}
 
 interface Message {
   id: number
@@ -23,7 +32,7 @@ interface Message {
   streaming: boolean
   error: boolean
   renderedHtml: string
-  toolStatus: string
+  toolCalls: ToolCall[]
 }
 
 const conversations = ref<ConversationItem[]>([])
@@ -35,8 +44,21 @@ const loadingMessages = ref(false)
 const sidebarCollapsed = ref(false)
 const sidebarWidth = ref(260)
 
+const previewVisible = ref(false)
+const previewDocId = ref<number | null>(null)
+const previewDocTitle = ref('')
+const previewChunkIndex = ref<number | null>(null)
+
+function handlePreviewSource(documentId: number, documentTitle: string, chunkIndex: number) {
+  previewDocId.value = documentId
+  previewDocTitle.value = documentTitle
+  previewChunkIndex.value = chunkIndex
+  previewVisible.value = true
+}
+
 const messageListRef = ref<InstanceType<typeof MessageList>>()
 const router = useRouter()
+let abortController: AbortController | null = null
 
 onMounted(async () => {
   await loadConversations()
@@ -78,7 +100,7 @@ async function selectConversation(conv: ConversationItem) {
         streaming: false,
         error: false,
         renderedHtml: renderMarkdown(answer),
-        toolStatus: '',
+        toolCalls: [],
       }
     })
   } catch {
@@ -135,7 +157,7 @@ async function handleSend() {
     streaming: true,
     error: false,
     renderedHtml: '',
-    toolStatus: '',
+    toolCalls: [],
   })
   const msg = messages.value[messages.value.length - 1]!
   scrollToBottom()
@@ -144,10 +166,12 @@ async function handleSend() {
   let chunkIdx = 0
 
   try {
+    abortController = new AbortController()
     const response = await fetch('/api/chat/stream', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
       body: JSON.stringify({ question: text, conversationId: currentConvId.value }),
+      signal: abortController.signal,
     })
 
     if (!response.ok) throw new Error('Request failed')
@@ -187,16 +211,13 @@ async function handleSend() {
           } else if (eventType === 'tool') {
             try {
               const toolInfo = JSON.parse(data)
-              // 根据工具类型显示友好的提示
-              const toolMessages: Record<string, string> = {
-                searchKnowledgeBase: '检索知识库',
-                getWeather: '查询天气',
-                getSchedule: '查询课表',
-                getLibrarySeats: '查询图书馆座位',
-                getEmptyClassrooms: '查询空闲教室',
-                getCurrentTime: '获取当前时间'
-              }
-              msg.toolStatus = toolMessages[toolInfo.name] || toolInfo.displayName || '处理中'
+              msg.toolCalls.push({
+                name: toolInfo.name,
+                displayName: toolInfo.displayName || toolInfo.name,
+                status: 'done',
+                arguments: toolInfo.arguments,
+                result: toolInfo.result,
+              })
             } catch { /* ignore */ }
           }
           eventType = ''
@@ -205,24 +226,42 @@ async function handleSend() {
     }
     console.log('[Stream] done, answer length:', msg.answer.length)
     msg.streaming = false
-    msg.toolStatus = ''
     // 更新渲染后的 HTML
     msg.renderedHtml = renderMarkdown(msg.answer)
     sessionStorage.setItem('lastConvId', String(currentConvId.value))
     // 使用 forceUpdate 强制重新渲染，而不是销毁组件
     await nextTick()
     scrollToBottom()
-  } catch {
-    if (!msg.answer) {
-      msg.error = true
-      msg.answer = '请求失败，请检查后端服务是否启动'
+  } catch (e: any) {
+    if (e?.name === 'AbortError') {
+      msg.streaming = false
+      if (msg.answer) {
+        msg.renderedHtml = renderMarkdown(msg.answer)
+      } else {
+        messages.value.pop()
+      }
+    } else {
+      if (!msg.answer) {
+        msg.error = true
+        msg.answer = '请求失败，请检查后端服务是否启动'
+      }
+      msg.renderedHtml = msg.answer
+      msg.streaming = false
     }
-    msg.renderedHtml = msg.answer
-    msg.streaming = false
   } finally {
     sending.value = false
+    abortController = null
     scrollToBottom()
   }
+}
+
+function handleStop() {
+  abortController?.abort()
+}
+
+async function handleQuickAsk(question: string) {
+  inputText.value = question
+  await handleSend()
 }
 
 function renderMarkdown(text: string): string {
@@ -253,9 +292,16 @@ function renderMarkdown(text: string): string {
     />
 
     <section class="chat-main">
-      <MessageList ref="messageListRef" :messages="messages" :loading="loadingMessages" />
-      <ChatInput v-model="inputText" :disabled="sending" @send="handleSend" @input="scrollToBottom" />
+      <MessageList ref="messageListRef" :messages="messages" :loading="loadingMessages" @quick-ask="handleQuickAsk" @preview-source="handlePreviewSource" />
+      <ChatInput v-model="inputText" :disabled="sending" :streaming="sending" @send="handleSend" @stop="handleStop" @input="scrollToBottom" />
     </section>
+
+    <DocumentPreviewDrawer
+      v-model:visible="previewVisible"
+      :document-id="previewDocId"
+      :document-title="previewDocTitle"
+      :highlight-chunk-index="previewChunkIndex"
+    />
   </div>
 </template>
 

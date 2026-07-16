@@ -55,13 +55,35 @@ public class RetrievalService {
         int candidateSize = topK * 2;
 
         Map<Long, Double> rrfScores = new HashMap<>();
-        for (RetrievalStrategy strategy : List.of(vectorStrategy, esStrategy)) {
-            try {
-                Map<Long, Double> scores = strategy.search(query, queryEmbedding, candidateSize);
-                addRrfScores(rrfScores, sortByScoreDesc(scores));
-            } catch (Exception e) {
-                log.warn("策略 {} 执行失败，降级跳过: {}", strategy.getClass().getSimpleName(), e.getMessage());
+        Map<Long, Double> vectorScores = new HashMap<>();
+        Map<Long, Double> esScores = new HashMap<>();
+        Map<Long, Integer> vectorRanks = new HashMap<>();
+        Map<Long, Integer> esRanks = new HashMap<>();
+
+        // 向量检索
+        try {
+            Map<Long, Double> scores = vectorStrategy.search(query, queryEmbedding, candidateSize);
+            vectorScores.putAll(scores);
+            List<Long> ranked = sortByScoreDesc(scores);
+            for (int i = 0; i < ranked.size(); i++) {
+                vectorRanks.put(ranked.get(i), i + 1);
             }
+            addRrfScores(rrfScores, ranked);
+        } catch (Exception e) {
+            log.warn("向量检索失败，降级跳过: {}", e.getMessage());
+        }
+
+        // ES 检索
+        try {
+            Map<Long, Double> scores = esStrategy.search(query, null, candidateSize);
+            esScores.putAll(scores);
+            List<Long> ranked = sortByScoreDesc(scores);
+            for (int i = 0; i < ranked.size(); i++) {
+                esRanks.put(ranked.get(i), i + 1);
+            }
+            addRrfScores(rrfScores, ranked);
+        } catch (Exception e) {
+            log.warn("ES检索失败，降级跳过: {}", e.getMessage());
         }
 
         List<Long> topIds = rrfScores.entrySet().stream()
@@ -73,7 +95,7 @@ public class RetrievalService {
         if (topIds.isEmpty()) return List.of();
 
         Map<Long, DocumentChunk> chunkMap = batchGetChunks(topIds);
-        return toResultList(topIds, chunkMap, rrfScores);
+        return toResultList(topIds, chunkMap, rrfScores, vectorScores, esScores, vectorRanks, esRanks);
     }
 
     // ────────── 上下文格式化 ──────────
@@ -95,17 +117,27 @@ public class RetrievalService {
     }
 
     public List<SourceReference> buildSources(List<RetrievalResult> results) {
+        return buildSources(results, false);
+    }
+
+    public List<SourceReference> buildSources(List<RetrievalResult> results, boolean withDebug) {
         return results.stream()
                 .map(r -> {
                     DocumentChunk chunk = r.getChunk();
                     ChunkMetadata meta = ChunkMetadata.fromJson(chunk.getMetadata());
-                    return SourceReference.builder()
+                    SourceReference.SourceReferenceBuilder b = SourceReference.builder()
                             .documentId(meta.documentId())
                             .documentTitle(meta.documentTitle())
                             .chunkContent(chunk.getContent())
                             .chunkIndex(chunk.getChunkIndex())
-                            .similarityScore(r.getSimilarityScore())
-                            .build();
+                            .similarityScore(r.getSimilarityScore());
+                    if (withDebug) {
+                        b.vectorScore(r.getVectorScore())
+                         .esScore(r.getEsScore())
+                         .vectorRank(r.getVectorRank())
+                         .esRank(r.getEsRank());
+                    }
+                    return b.build();
                 })
                 .toList();
     }
@@ -124,7 +156,14 @@ public class RetrievalService {
         if (idScore.isEmpty()) return List.of();
         List<Long> sortedIds = sortByScoreDesc(idScore).stream().limit(topK).toList();
         Map<Long, DocumentChunk> chunkMap = batchGetChunks(sortedIds);
-        return toResultList(sortedIds, chunkMap, idScore);
+        List<RetrievalResult> results = new ArrayList<>();
+        for (Long id : sortedIds) {
+            DocumentChunk chunk = chunkMap.get(id);
+            if (chunk != null) {
+                results.add(new RetrievalResult(chunk, idScore.getOrDefault(id, 0.0)));
+            }
+        }
+        return results;
     }
 
     private Map<Long, DocumentChunk> batchGetChunks(List<Long> ids) {
@@ -135,12 +174,26 @@ public class RetrievalService {
         return map;
     }
 
-    private List<RetrievalResult> toResultList(List<Long> idOrder, Map<Long, DocumentChunk> chunkMap, Map<Long, Double> scores) {
+    private List<RetrievalResult> toResultList(
+            List<Long> idOrder,
+            Map<Long, DocumentChunk> chunkMap,
+            Map<Long, Double> rrfScores,
+            Map<Long, Double> vectorScores,
+            Map<Long, Double> esScores,
+            Map<Long, Integer> vectorRanks,
+            Map<Long, Integer> esRanks) {
         List<RetrievalResult> results = new ArrayList<>();
         for (Long id : idOrder) {
             DocumentChunk chunk = chunkMap.get(id);
             if (chunk != null) {
-                results.add(new RetrievalResult(chunk, scores.getOrDefault(id, 0.0)));
+                results.add(new RetrievalResult(
+                        chunk,
+                        rrfScores.getOrDefault(id, 0.0),
+                        vectorScores.getOrDefault(id, 0.0),
+                        esScores.getOrDefault(id, 0.0),
+                        vectorRanks.getOrDefault(id, 0),
+                        esRanks.getOrDefault(id, 0)
+                ));
             }
         }
         return results;

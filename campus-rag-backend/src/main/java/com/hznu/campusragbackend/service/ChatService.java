@@ -5,6 +5,7 @@ import com.hznu.campusragbackend.agent.tools.RagRetrievalTool;
 import com.hznu.campusragbackend.model.ChatResponse;
 import com.hznu.campusragbackend.model.SourceReference;
 import com.hznu.campusragbackend.rag.assistant.RagAssistant;
+import com.hznu.campusragbackend.rag.retrieval.RetrievalResult;
 import dev.langchain4j.service.TokenStream;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -99,26 +100,31 @@ public class ChatService {
                         .onToolExecuted(te -> {
                             log.info("[流式] 工具调用 tool={} args={}", te.request().name(), te.request().arguments());
                             String displayName = TOOL_DISPLAY_NAMES.getOrDefault(te.request().name(), te.request().name());
+                            String args = te.request().arguments() != null ? te.request().arguments() : "{}";
+                            String result = te.result() != null ? te.result() : "";
                             sink.next(sse("tool", JSONUtil.toJsonStr(Map.of(
                                     "name", te.request().name(),
                                     "displayName", displayName,
-                                    "status", "done"
+                                    "status", "done",
+                                    "arguments", args,
+                                    "result", result
                             ))));
                         })
                         .onCompleteResponse(response -> {
                             log.info("[流式] 完成 +{}ms, 共{}个token", System.currentTimeMillis() - sseStartTime, tokenCount.get());
                             String finalAnswer = fullAnswer.toString();
-                            List<SourceReference> sources = ragRetrievalTool.getAndClearSources();
-                            if (sources == null) sources = List.of();
-                            String sourcesJson = JSONUtil.toJsonStr(sources);
+                            List<RetrievalResult> results = ragRetrievalTool.getAndClearResults();
+                            if (results == null) results = List.of();
+                            List<SourceReference> sourcesForPersist = ragRetrievalTool.buildSources(results, false);
+                            List<SourceReference> sourcesForSse = ragRetrievalTool.buildSources(results, true);
 
-                            conversationService.saveMessage(effectiveConvId, question, finalAnswer, sources);
+                            conversationService.saveMessage(effectiveConvId, question, finalAnswer, sourcesForPersist);
                             queryCache.put(question, ChatResponse.builder()
                                     .conversationId(effectiveConvId)
                                     .answer(finalAnswer)
-                                    .sources(sources)
+                                    .sources(sourcesForPersist)
                                     .build());
-                            sink.next(sse("sources", sourcesJson));
+                            sink.next(sse("sources", JSONUtil.toJsonStr(sourcesForSse)));
                             sink.complete();
                         })
                         .onError(error -> {

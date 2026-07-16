@@ -1,15 +1,16 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { Promotion } from '@element-plus/icons-vue'
 
 defineProps<{
   modelValue: string
   disabled: boolean
+  streaming: boolean
 }>()
 
 const emit = defineEmits<{
   'update:modelValue': [value: string]
   send: []
+  stop: []
   input: []
 }>()
 
@@ -47,12 +48,19 @@ defineExpose({ focus })
         @keydown="handleKeydown"
         @input="onInput"
       ></textarea>
-      <button class="send-btn" :disabled="disabled || !modelValue.trim()" @click="emit('send')">
-        <svg v-if="!disabled" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <button
+        class="send-btn"
+        :class="{ 'stop-mode': streaming }"
+        :disabled="!streaming && !modelValue.trim()"
+        @click="streaming ? emit('stop') : emit('send')"
+      >
+        <svg v-if="!streaming" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <line x1="22" y1="2" x2="11" y2="13"/>
           <polygon points="22 2 15 22 11 13 2 9 22 2"/>
         </svg>
-        <el-icon v-else class="is-loading"><Promotion /></el-icon>
+        <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+          <rect x="6" y="6" width="12" height="12" rx="2"/>
+        </svg>
       </button>
     </div>
   </div>
@@ -89,4 +97,7 @@ defineExpose({ focus })
 
 .send-btn:hover:not(:disabled) { background: var(--green-hover); }
 .send-btn:disabled { background: #d1d5db; cursor: not-allowed; }
+.send-btn.stop-mode { background: #dc2626; }
+.send-btn.stop-mode:hover { background: #b91c1c; }
+.send-btn:active:not(:disabled) { transform: scale(0.95); }
 </style>
