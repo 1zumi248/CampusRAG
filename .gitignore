@@ -41,8 +41,8 @@ docs/
 SKILLS-GUIDE.md
 ux.html
 
-# Claude Code 本地工作区
-.claude/worktrees/
+# Claude Code 本地配置与工作区
+.claude/
 
 # IDEA 特定配置（排除已被跟踪的文件）
 .idea/*.xml
