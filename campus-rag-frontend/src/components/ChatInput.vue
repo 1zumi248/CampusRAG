@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { nextTick, ref, watch } from 'vue'
 
-defineProps<{
+const props = defineProps<{
   modelValue: string
   disabled: boolean
   streaming: boolean
@@ -24,9 +24,21 @@ function handleKeydown(e: KeyboardEvent) {
 }
 
 function onInput(e: Event) {
-  emit('update:modelValue', (e.target as HTMLTextAreaElement).value)
+  const textarea = e.target as HTMLTextAreaElement
+  emit('update:modelValue', textarea.value)
+  resizeTextarea(textarea)
   emit('input')
 }
+
+function resizeTextarea(textarea = inputRef.value) {
+  if (!textarea) return
+  textarea.style.height = 'auto'
+  textarea.style.height = `${Math.min(textarea.scrollHeight, 120)}px`
+}
+
+watch(() => props.modelValue, () => {
+  nextTick(() => resizeTextarea())
+})
 
 function focus() {
   inputRef.value?.focus()
@@ -45,6 +57,7 @@ defineExpose({ focus })
         placeholder="输入你的问题，按 Enter 发送..."
         rows="1"
         :disabled="disabled"
+        aria-label="输入校园知识问题"
         @keydown="handleKeydown"
         @input="onInput"
       ></textarea>
@@ -52,6 +65,8 @@ defineExpose({ focus })
         class="send-btn"
         :class="{ 'stop-mode': streaming }"
         :disabled="!streaming && !modelValue.trim()"
+        :aria-label="streaming ? '停止生成' : '发送问题'"
+        :title="streaming ? '停止生成' : '发送问题'"
         @click="streaming ? emit('stop') : emit('send')"
       >
         <svg v-if="!streaming" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -67,13 +82,20 @@ defineExpose({ focus })
 </template>
 
 <style scoped>
-.chat-footer { padding: 12px 24px 16px; border-top: 1px solid var(--border); }
+.chat-footer {
+  padding: 14px 24px 18px;
+  border-top: 1px solid var(--border);
+  background: rgba(250, 250, 249, 0.92);
+}
 
 .input-row {
   display: flex; align-items: flex-end; gap: 8px;
   background: var(--white); border: 1px solid var(--border);
   border-radius: 12px; padding: 8px 8px 8px 16px;
-  transition: border-color 0.2s;
+  width: min(900px, 100%);
+  margin: 0 auto;
+  box-shadow: 0 8px 24px rgba(41, 37, 36, 0.05);
+  transition: border-color 0.2s, box-shadow 0.2s;
 }
 
 .input-row:focus-within { border-color: var(--green); box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.1); }
@@ -100,4 +122,20 @@ defineExpose({ focus })
 .send-btn.stop-mode { background: #dc2626; }
 .send-btn.stop-mode:hover { background: #b91c1c; }
 .send-btn:active:not(:disabled) { transform: scale(0.95); }
+
+.send-btn:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 2px;
+}
+
+@media (max-width: 720px) {
+  .chat-footer {
+    padding: 10px 12px 12px;
+  }
+
+  .input-row {
+    padding-left: 12px;
+    border-radius: 10px;
+  }
+}
 </style>

@@ -140,7 +140,11 @@ onMounted(loadDocuments)
 <template>
   <div class="manage-wrapper">
     <div class="page-header">
-      <h2 class="page-title">文档管理</h2>
+      <div>
+        <p class="page-kicker">KNOWLEDGE ARCHIVE</p>
+        <h2 class="page-title">文档管理</h2>
+        <p class="page-description">维护校园知识来源，上传后将自动解析、分块并建立混合检索索引。</p>
+      </div>
       <el-button :icon="Refresh" @click="loadDocuments" :loading="loading" text>
         刷新
       </el-button>
@@ -158,7 +162,8 @@ onMounted(loadDocuments)
     >
       <el-icon :size="32" color="#0f766e"><UploadFilled /></el-icon>
       <div class="upload-text">
-        <p>将文件拖到此处，或<em>点击上传</em></p>
+        <p class="upload-title">将资料收入知识档案</p>
+        <p>拖到此处，或<em>点击选择文件</em></p>
         <p class="upload-hint">支持多选 · PDF、Word、Markdown、TXT（最大 50MB）</p>
       </div>
     </el-upload>
@@ -223,32 +228,56 @@ onMounted(loadDocuments)
 
 <style scoped>
 .manage-wrapper {
-  max-width: 800px;
+  max-width: 960px;
   margin: 0 auto;
+  padding: 6px 0 30px;
 }
 
 .page-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 20px;
+  margin-bottom: 22px;
 }
 
 .page-title {
-  font-size: 18px;
+  margin: 3px 0 6px;
+  font-family: 'Songti SC', 'STSong', serif;
+  font-size: 28px;
   font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.page-kicker {
+  color: var(--green);
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+}
+
+.page-description {
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
 }
 
 .upload-zone :deep(.el-upload-dragger) {
   background: rgba(15, 118, 110, 0.15) !important;
   border: 1px dashed rgba(15, 118, 110, 0.5) !important;
   border-radius: 12px !important;
-  transition: background-color 0.3s, border-color 0.3s;
+  min-height: 184px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.25s, border-color 0.25s, transform 0.25s;
 }
 
 .upload-zone :deep(.el-upload-dragger:hover) {
   background: rgba(15, 118, 110, 0.25) !important;
   border-color: rgba(15, 118, 110, 0.7) !important;
+  transform: translateY(-2px);
 }
 
 .upload-zone {
@@ -259,6 +288,14 @@ onMounted(loadDocuments)
   margin: 6px 0;
   font-size: 14px;
   color: #606266;
+}
+
+.upload-text .upload-title {
+  margin-top: 12px;
+  color: var(--text);
+  font-family: 'Songti SC', 'STSong', serif;
+  font-size: 17px;
+  font-weight: 700;
 }
 
 .upload-hint {
@@ -313,7 +350,7 @@ onMounted(loadDocuments)
 }
 
 .doc-list {
-  margin-top: 20px;
+  margin-top: 22px;
 }
 
 .list-empty {
@@ -339,13 +376,16 @@ onMounted(loadDocuments)
   gap: 14px;
   background: #fff;
   border: 1px solid #e5e7eb;
-  border-radius: 10px;
-  padding: 14px 16px;
-  transition: border-color 0.2s;
+  border-radius: 8px;
+  padding: 15px 16px;
+  box-shadow: 0 5px 18px rgba(41, 37, 36, 0.03);
+  transition: border-color 0.2s, transform 0.2s, box-shadow 0.2s;
 }
 
 .doc-card:hover {
-  border-color: #d1d5db;
+  border-color: #b8b4ad;
+  transform: translateY(-1px);
+  box-shadow: 0 9px 24px rgba(41, 37, 36, 0.06);
 }
 
 .doc-icon {
@@ -414,5 +454,60 @@ onMounted(loadDocuments)
   margin-top: 20px;
   justify-content: center;
   display: flex;
+}
+
+@media (max-width: 720px) {
+  .manage-wrapper {
+    padding-top: 2px;
+  }
+
+  .page-header {
+    align-items: flex-start;
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+
+  .page-title {
+    font-size: 24px;
+  }
+
+  .page-description {
+    max-width: 270px;
+    font-size: 12px;
+  }
+
+  .upload-zone :deep(.el-upload-dragger) {
+    min-height: 160px;
+    padding: 18px 12px;
+  }
+
+  .upload-text .upload-title {
+    font-size: 16px;
+  }
+
+  .upload-hint {
+    line-height: 1.55;
+  }
+
+  .batch-actions,
+  .uploading-bar {
+    align-items: stretch;
+    flex-direction: column;
+    text-align: center;
+  }
+
+  .doc-card {
+    gap: 10px;
+    padding: 12px;
+  }
+
+  .doc-meta {
+    flex-wrap: wrap;
+  }
+
+  .doc-pagination :deep(.el-pagination__total),
+  .doc-pagination :deep(.el-pagination__sizes) {
+    display: none;
+  }
 }
 </style>

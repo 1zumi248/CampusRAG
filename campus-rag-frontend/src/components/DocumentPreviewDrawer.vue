@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, nextTick, computed } from 'vue'
+import { ref, watch, nextTick, computed, onMounted, onBeforeUnmount } from 'vue'
 import { getDocumentChunks, type DocumentChunk } from '@/api/chat'
 
 const props = defineProps<{
@@ -21,6 +21,20 @@ const drawerVisible = computed({
 const chunks = ref<DocumentChunk[]>([])
 const loading = ref(false)
 const error = ref('')
+const drawerSize = ref('min(720px, 48vw)')
+
+function updateDrawerSize() {
+  drawerSize.value = window.innerWidth <= 720 ? '100%' : 'min(720px, 48vw)'
+}
+
+onMounted(() => {
+  updateDrawerSize()
+  window.addEventListener('resize', updateDrawerSize)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', updateDrawerSize)
+})
 
 watch(
   [() => props.documentId, () => props.visible],
@@ -53,7 +67,7 @@ watch(
     v-model="drawerVisible"
     :title="documentTitle || '文档预览'"
     direction="rtl"
-    size="45%"
+    :size="drawerSize"
   >
     <div v-if="loading" class="drawer-status">加载中...</div>
     <div v-else-if="error" class="drawer-status error">{{ error }}</div>

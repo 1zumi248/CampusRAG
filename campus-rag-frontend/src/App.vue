@@ -10,7 +10,14 @@ const activeIndex = computed(() => route.path)
 <template>
   <el-container class="app-container">
     <el-aside class="app-aside" width="220px">
-      <div class="logo">CampusRAG</div>
+      <div class="logo" aria-label="CampusRAG 校园知识工作台">
+        <span class="logo-mark">知</span>
+        <span class="logo-copy">
+          <span class="logo-title">CampusRAG</span>
+          <span class="logo-subtitle">校园知识工作台</span>
+        </span>
+      </div>
+      <div class="nav-label">工作台</div>
       <el-menu
         :default-active="activeIndex"
         router
@@ -28,6 +35,7 @@ const activeIndex = computed(() => route.path)
         </el-menu-item>
       </el-menu>
       <div class="aside-footer">
+        <span class="service-state"><i></i>知识服务台</span>
         <span class="version">v0.1.0</span>
       </div>
     </el-aside>
@@ -60,6 +68,9 @@ const activeIndex = computed(() => route.path)
   --text-secondary: #57534e;
   --bg: #fafaf9;
   --white: #ffffff;
+  --paper: #f7f5f0;
+  --ink-muted: #78716c;
+  --shadow-soft: 0 18px 50px rgba(41, 37, 36, 0.07);
 
   /* 覆盖 Element Plus 主色为项目墨绿,避免分页器/按钮等默认蓝色割裂 */
   --el-color-primary: #0f766e;
@@ -78,12 +89,14 @@ const activeIndex = computed(() => route.path)
 
 html, body, #app {
   height: 100%;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  font-family: 'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC', sans-serif;
   color: var(--text);
+  background: var(--paper);
 }
 
 .app-container {
   height: 100%;
+  min-width: 0;
 }
 
 .app-aside {
@@ -91,14 +104,59 @@ html, body, #app {
   flex-direction: column;
   border-right: 1px solid var(--border);
   background: var(--white);
+  position: relative;
+  z-index: 30;
 }
 
 .logo {
-  padding: 20px 20px 16px;
-  font-size: 20px;
-  font-weight: 700;
+  padding: 22px 18px 20px;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+
+.logo-mark {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border: 1px solid var(--green);
+  border-radius: 9px 9px 9px 3px;
   color: var(--green);
+  font-family: 'Songti SC', 'STSong', serif;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.logo-copy {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.logo-title {
+  color: var(--green);
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 19px;
+  font-weight: 700;
+  line-height: 1.05;
   letter-spacing: -0.5px;
+}
+
+.logo-subtitle {
+  margin-top: 4px;
+  color: var(--ink-muted);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+}
+
+.nav-label {
+  padding: 0 20px 8px;
+  color: #a8a29e;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
 }
 
 .side-menu {
@@ -131,8 +189,28 @@ html, body, #app {
 }
 
 .aside-footer {
-  padding: 16px 20px;
+  padding: 14px 18px;
   border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.service-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-muted);
+  font-size: 11px;
+}
+
+.service-state i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 0 3px var(--green-bg);
 }
 
 .version {
@@ -141,10 +219,11 @@ html, body, #app {
 }
 
 .app-main {
-  background: var(--bg);
+  background: var(--paper);
   padding: 24px;
   height: 100%;
   overflow: auto;
+  min-width: 0;
 }
 
 /* 页面切换过渡 */
@@ -157,5 +236,79 @@ html, body, #app {
 }
 .page-leave-to {
   opacity: 0;
+}
+
+@media (max-width: 860px) {
+  .app-container {
+    flex-direction: column;
+  }
+
+  .app-aside {
+    width: 100% !important;
+    height: 64px;
+    flex: 0 0 64px;
+    flex-direction: row;
+    align-items: center;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .logo {
+    padding: 10px 14px;
+    gap: 8px;
+  }
+
+  .logo-mark {
+    width: 32px;
+    height: 32px;
+  }
+
+  .logo-title {
+    font-size: 17px;
+  }
+
+  .logo-subtitle,
+  .nav-label,
+  .aside-footer {
+    display: none;
+  }
+
+  .side-menu.el-menu {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 4px;
+    padding: 0 10px 0 0;
+    overflow: hidden;
+  }
+
+  .side-menu .el-menu-item {
+    height: 40px;
+    margin: 0;
+    padding: 0 12px !important;
+  }
+
+  .app-main {
+    width: 100%;
+    height: calc(100% - 64px);
+    padding: 12px;
+  }
+}
+
+@media (max-width: 480px) {
+  .logo-copy {
+    display: none;
+  }
+
+  .side-menu.el-menu {
+    justify-content: flex-start;
+  }
+
+  .side-menu .el-menu-item {
+    flex: 1;
+    justify-content: center;
+    font-size: 13px;
+  }
 }
 </style>

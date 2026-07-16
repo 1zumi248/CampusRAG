@@ -50,7 +50,7 @@ function stopDrag() {
 <template>
   <aside ref="sidebarRef" class="chat-sidebar" :class="{ collapsed }" :style="{ width: collapsed ? '44px' : width + 'px' }">
     <div class="sidebar-header">
-      <button v-if="!collapsed" class="new-chat-btn" @click="emit('new-chat')">
+      <button v-if="!collapsed" class="new-chat-btn" type="button" @click="emit('new-chat')">
         <el-icon :size="16"><Plus /></el-icon>
         <span>新建会话</span>
       </button>
@@ -64,13 +64,13 @@ function stopDrag() {
         @click="emit('select', conv)"
       >
         <span class="conv-title">{{ conv.title }}</span>
-        <button class="conv-delete" @click.stop="emit('delete', conv)">
+        <button class="conv-delete" type="button" aria-label="删除会话" @click.stop="emit('delete', conv)">
           <el-icon :size="14"><Delete /></el-icon>
         </button>
       </div>
       <div v-if="conversations.length === 0" class="conv-empty">暂无会话，开始提问吧</div>
     </div>
-    <button class="collapse-btn" @click="toggleSidebar" :title="collapsed ? '展开侧栏' : '收起侧栏'"
+    <button class="collapse-btn" type="button" @click="toggleSidebar" :title="collapsed ? '展开侧栏' : '收起侧栏'"
             :style="{ left: (collapsed ? 44 : width) + 'px' }">
       <el-icon :size="14">
         <DArrowLeft v-if="!collapsed" />
@@ -92,6 +92,7 @@ function stopDrag() {
   position: relative;
   transition: width 0.25s ease;
   user-select: none;
+  box-shadow: 0 1px 0 rgba(41, 37, 36, 0.02);
 }
 
 .chat-sidebar.collapsed {
@@ -132,6 +133,13 @@ function stopDrag() {
   border-color: var(--green);
   color: var(--green);
   background: var(--green-bg);
+}
+
+.new-chat-btn:focus-visible,
+.collapse-btn:focus-visible,
+.conv-delete:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 2px;
 }
 
 .collapse-btn {
@@ -230,5 +238,81 @@ function stopDrag() {
   text-align: center;
   font-size: 13px;
   color: var(--text-secondary);
+}
+
+@media (max-width: 860px) {
+  .chat-sidebar,
+  .chat-sidebar.collapsed {
+    width: 100% !important;
+    min-width: 0;
+    height: 58px;
+    min-height: 58px;
+    flex-direction: row;
+    border-radius: 12px 12px 0 0;
+    border-bottom: 1px solid var(--border);
+    overflow: hidden;
+    transition: none;
+  }
+
+  .sidebar-header,
+  .collapsed .sidebar-header {
+    width: 146px;
+    min-width: 146px;
+    min-height: 58px;
+    padding: 8px;
+    border-bottom: 0;
+    border-right: 1px solid var(--border);
+    border-radius: 0;
+  }
+
+  .collapsed .sidebar-header {
+    display: none;
+  }
+
+  .conv-list {
+    display: flex !important;
+    align-items: center;
+    gap: 4px;
+    padding: 8px;
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+
+  .conv-item {
+    min-width: 150px;
+    max-width: 220px;
+    height: 40px;
+    margin: 0;
+    padding: 8px 10px;
+    flex: 0 0 auto;
+  }
+
+  .conv-empty {
+    width: 100%;
+    padding: 0 12px;
+    text-align: left;
+    white-space: nowrap;
+  }
+
+  .collapse-btn,
+  .resize-handle {
+    display: none;
+  }
+}
+
+@media (max-width: 520px) {
+  .sidebar-header,
+  .collapsed .sidebar-header {
+    width: 116px;
+    min-width: 116px;
+  }
+
+  .new-chat-btn {
+    font-size: 12px;
+  }
+
+  .conv-item {
+    min-width: 128px;
+  }
 }
 </style>

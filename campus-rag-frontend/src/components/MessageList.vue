@@ -166,10 +166,12 @@ defineExpose({ scrollToBottom, refresh })
           <line x1="12" y1="7" x2="12" y2="13"/>
         </svg>
       </div>
+      <p class="empty-kicker">CAMPUS KNOWLEDGE DESK</p>
       <p class="empty-title">校园知识问答</p>
-      <p class="empty-hint">输入问题，或从下面这些开始</p>
+      <p class="empty-hint">检索校内文档与服务信息，答案会标注可追溯来源</p>
       <div class="quick-prompts">
-        <button v-for="p in quickPrompts" :key="p" class="prompt-card" @click="emit('quick-ask', p)">
+        <button v-for="(p, index) in quickPrompts" :key="p" type="button" class="prompt-card" @click="emit('quick-ask', p)">
+          <span class="prompt-index">0{{ index + 1 }}</span>
           <span class="prompt-text">{{ p }}</span>
           <span class="prompt-arrow">&rarr;</span>
         </button>
@@ -260,15 +262,44 @@ defineExpose({ scrollToBottom, refresh })
 .chat-body {
   flex: 1;
   overflow-y: auto;
-  padding: 8px 24px 24px;
+  padding: 8px 28px 28px;
+  scrollbar-gutter: stable;
 }
 
-.chat-empty { text-align: center; padding-top: 80px; }
+.chat-empty {
+  width: min(620px, 100%);
+  margin: 0 auto;
+  padding-top: clamp(44px, 10vh, 96px);
+  text-align: center;
+  animation: empty-enter 0.55s ease both;
+}
 .loading-history { text-align: center; padding: 24px; font-size: 14px; color: var(--text-secondary); }
-.empty-icon { margin-bottom: 16px; }
+.empty-icon { margin-bottom: 14px; }
 
-.empty-title { font-size: 18px; font-weight: 600; color: var(--text); margin-bottom: 8px; }
-.empty-hint { font-size: 14px; color: var(--text-secondary); }
+.empty-kicker {
+  margin-bottom: 8px;
+  color: var(--green);
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+}
+
+.empty-title {
+  margin-bottom: 8px;
+  color: var(--text);
+  font-family: 'Songti SC', 'STSong', serif;
+  font-size: clamp(24px, 2.4vw, 30px);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.empty-hint { font-size: 13px; color: var(--text-secondary); }
+
+@keyframes empty-enter {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
 
 /* 快捷提问卡片 - 图书馆索引卡风格 */
 .quick-prompts {
@@ -284,7 +315,7 @@ defineExpose({ scrollToBottom, refresh })
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 14px 14px 18px;
+  padding: 15px 14px 15px 16px;
   text-align: left;
   background: var(--white);
   border: 1px solid var(--border);
@@ -318,6 +349,14 @@ defineExpose({ scrollToBottom, refresh })
 .prompt-card:active { transform: translateY(0) scale(0.98); }
 .prompt-card:active::before { width: 3px; }
 
+.prompt-index {
+  margin-right: 12px;
+  color: #a8a29e;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+}
+
 .prompt-text { flex: 1; }
 
 .prompt-arrow {
@@ -335,13 +374,13 @@ defineExpose({ scrollToBottom, refresh })
 
 .chat-item {
   margin-bottom: 18px;
-  max-width: 820px;
-  margin-left: 0;
-  margin-right: auto;
+  width: 100%;
 }
 
 .msg-list {
   display: block;
+  width: min(900px, 100%);
+  margin: 0 auto;
 }
 
 /* 消息进入动画 */
@@ -659,5 +698,83 @@ defineExpose({ scrollToBottom, refresh })
 @keyframes blink {
   0%, 100% { opacity: 1; }
   50% { opacity: 0; }
+}
+
+@media (max-width: 720px) {
+  .chat-body {
+    padding: 8px 14px 18px;
+    scrollbar-gutter: auto;
+  }
+
+  .chat-empty {
+    padding-top: 34px;
+  }
+
+  .empty-icon svg {
+    width: 46px;
+    height: 46px;
+  }
+
+  .empty-title {
+    font-size: 23px;
+  }
+
+  .empty-hint {
+    max-width: 280px;
+    margin: 0 auto;
+    line-height: 1.65;
+  }
+
+  .quick-prompts {
+    grid-template-columns: 1fr;
+    gap: 8px;
+    margin-top: 20px;
+  }
+
+  .prompt-card {
+    padding: 12px 12px 12px 14px;
+  }
+
+  .chat-question,
+  .chat-answer {
+    gap: 8px;
+  }
+
+  .msg-avatar {
+    width: 30px;
+    height: 30px;
+    border-radius: 7px;
+    font-size: 12px;
+  }
+
+  .msg-bubble {
+    padding: 8px 11px;
+  }
+
+  .sources-box {
+    padding: 10px;
+  }
+
+  .debug-table {
+    overflow-x: auto;
+  }
+
+  .debug-row {
+    min-width: 560px;
+  }
+
+  .tool-detail {
+    margin-left: 12px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-empty,
+  .msg-enter-active,
+  .prompt-card,
+  .prompt-arrow {
+    animation: none;
+    transition: none;
+  }
 }
 </style>

@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { ref, nextTick, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { marked } from 'marked'
 import {
@@ -57,7 +56,6 @@ function handlePreviewSource(documentId: number, documentTitle: string, chunkInd
 }
 
 const messageListRef = ref<InstanceType<typeof MessageList>>()
-const router = useRouter()
 let abortController: AbortController | null = null
 
 onMounted(async () => {
@@ -310,6 +308,12 @@ function renderMarkdown(text: string): string {
   display: flex;
   height: 100%;
   gap: 0;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--white);
+  box-shadow: var(--shadow-soft);
+  overflow: hidden;
 }
 
 .chat-main {
@@ -318,8 +322,22 @@ function renderMarkdown(text: string): string {
   display: flex;
   flex-direction: column;
   background: var(--bg);
-  border-radius: 0 10px 10px 0;
+  border-radius: 0 13px 13px 0;
   border-left: 1px solid var(--border);
   margin-left: -1px;
+}
+
+@media (max-width: 860px) {
+  .chat-layout {
+    flex-direction: column;
+    border-radius: 12px;
+  }
+
+  .chat-main {
+    min-height: 0;
+    border-left: 0;
+    border-radius: 0 0 11px 11px;
+    margin-left: 0;
+  }
 }
 </style>
